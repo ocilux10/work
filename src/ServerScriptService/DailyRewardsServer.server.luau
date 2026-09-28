@@ -1,5 +1,5 @@
 -- DAILY REWARDS (server). Settings: ReplicatedStorage > DailyRewards > DailyConfig. Client: StarterPlayerScripts > DailyRewardsClient
--- Saved in PlayerData: Daily = {Day = last day claimed, Last = the calendar day it was claimed on}.
+-- Saved in PlayerData: Daily = {Day = last day claimed, At = os.time() it was claimed}.
 -- Put on the player: DailyDay (the day you can claim / claimed today), DailyCanClaim, DailyResetAt (unix time of the next day).
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
@@ -11,20 +11,24 @@ local folder = RS:WaitForChild("DailyRewards")
 local Config = require(folder:WaitForChild("DailyConfig"))
 local Remote = folder:WaitForChild("Remote")
 
-local function offset() return (Config.ResetHourUTC or 0) * 3600 end
-local function today() return math.floor((os.time() - offset()) / 86400) end
-local function resetAt() return (today() + 1) * 86400 + offset() end
+-- a reward every Cooldown seconds after the last claim (24h); miss it by more than MissWindow and (MissedDay = "Reset") the
+-- streak starts again at day 1
+local function cooldown() return Config.CooldownHours and Config.CooldownHours * 3600 or 86400 end
+local function missWindow() return Config.StreakHours and Config.StreakHours * 3600 or 2 * 86400 end
+local function lastAt(daily) return tonumber(daily.At) or -1e12 end
+local function resetAtOf(daily) return lastAt(daily) + cooldown() end
 
--- (can claim, day) - the day you'd get now, or the one you already got today
+-- (can claim, day) - the day you'd get now, or the one you got last
 local function state(d)
-	local daily = type(d.Daily) == "table" and d.Daily or {Day = 0, Last = -1}
-	local t = today()
-	if daily.Last == t then return false, math.max(daily.Day or 1, 1) end
+	local daily = type(d.Daily) == "table" and d.Daily or {Day = 0}
+	local now = os.time()
+	if now < resetAtOf(daily) then return false, math.max(daily.Day or 1, 1) end
 	local nextDay = 1
-	if daily.Last == t - 1 or Config.MissedDay == "Keep" then nextDay = (daily.Day or 0) + 1 end
+	if now <= lastAt(daily) + missWindow() or Config.MissedDay == "Keep" then nextDay = (daily.Day or 0) + 1 end
 	if nextDay > #Config.Days then nextDay = Config.AfterLastDay == "Stay" and #Config.Days or 1 end
 	return true, nextDay
 end
+local function resetAt(d) return resetAtOf(type(d.Daily) == "table" and d.Daily or {}) end
 
 local function publish(p)
 	local d = PlayerData.Get(p)
@@ -32,7 +36,7 @@ local function publish(p)
 	local can, day = state(d)
 	p:SetAttribute("DailyDay", day)
 	p:SetAttribute("DailyCanClaim", can)
-	p:SetAttribute("DailyResetAt", resetAt())
+	p:SetAttribute("DailyResetAt", resetAt(d))
 end
 
 local busy = {}
@@ -46,7 +50,7 @@ Remote.OnServerInvoke = function(p, action)
 	local reward = Config.Days[day]
 	if not reward then return false, "No reward set up for day " .. day end
 	busy[p] = true
-	d.Daily = {Day = day, Last = today()} -- (saved first: it can never be claimed twice)
+	d.Daily = {Day = day, At = os.time()} -- (saved first: it can never be claimed twice)
 	local ok = GiveReward(p, reward)
 	publish(p)
 	busy[p] = nil

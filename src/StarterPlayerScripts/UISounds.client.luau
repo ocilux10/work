@@ -99,6 +99,11 @@ local function hook(b)
 		end
 	end
 	local baseRot = b.Rotation
+	-- the little hover tilt: only on exit / close buttons (or any button with the attribute Tilt = true)
+	local TILT_NAMES = {Exit = true, Off = true, Close = true, X = true, CloseButton = true, ExitButton = true}
+	local tilt = b:GetAttribute("Tilt")
+	if tilt == nil then tilt = TILT_NAMES[b.Name] == true end
+	local tiltRot = tilt and baseRot + 1.5 or baseRot
 	local hovering, pressed = false, false
 	local function hoverScale() return b:GetAttribute("HoverScale") or 1.035 end
 	local function pressScale() return b:GetAttribute("PressScale") or 0.95 end
@@ -111,7 +116,7 @@ local function hook(b)
 	tb.MouseEnter:Connect(function()
 		if not isHoverDevice() or not b.Visible then return end
 		hovering = true
-		to(hoverScale(), baseRot + 1.5, 0.22)
+		to(hoverScale(), tiltRot, 0.22)
 		if not silent(tb) then SFX.Play(tb:GetAttribute("HoverSound") or "Hover") end
 	end)
 	tb.MouseLeave:Connect(function()
@@ -128,7 +133,7 @@ local function hook(b)
 	tb.MouseButton1Up:Connect(function()
 		if not pressed then return end
 		pressed = false
-		to(hovering and hoverScale() or 1, hovering and baseRot + 1.5 or baseRot, 0.25)
+		to(hovering and hoverScale() or 1, hovering and tiltRot or baseRot, 0.25)
 	end)
 	tb.Activated:Connect(function()
 		-- click: a quick pop, then settle
@@ -146,7 +151,7 @@ local function hook(b)
 			task.defer(function()
 				if not pressed then return end -- it was a click (MouseButton1Up already ran)
 				pressed = false
-				to(hovering and hoverScale() or 1, hovering and baseRot + 1.5 or baseRot, 0.25)
+				to(hovering and hoverScale() or 1, hovering and tiltRot or baseRot, 0.25)
 				if not silent(tb) then SFX.Play("ButtonRelease") end
 			end)
 		end

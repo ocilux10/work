@@ -16,8 +16,9 @@ M.Days = {
 	{Coins = 500, Crate = "Premium"},
 }
 
-M.ResetHourUTC = 0        -- the hour (UTC, 0-23) a new day starts
-M.MissedDay = "Reset"     -- "Reset" = miss a day and you're back to day 1,  "Keep" = carry on from where you were
+M.CooldownHours = 24      -- hours after claiming until the next reward
+M.StreakHours = 48        -- claim again within this many hours of your last claim to keep your streak
+M.MissedDay = "Reset"     -- "Reset" = miss the StreakHours window and you're back to day 1,  "Keep" = carry on from where you were
 M.AfterLastDay = "Loop"   -- after the last day: "Loop" = back to day 1,  "Stay" = keep getting the last day's reward
 M.OpenOnJoin = true       -- open the menu by itself when a reward is waiting (once per join)
 

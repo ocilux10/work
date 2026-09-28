@@ -154,8 +154,8 @@ M.OddsText = "1 balloon per open"     -- under the chest on the contents page
 
 -- THE SHOP CARD
 M.Card = {
-	ModelSpin = 20,       -- degrees per second the chest turns on its card (0 = still)
-	HoverSpin = 90,       -- ...and while you hover it
+	ModelSpin = 0,        -- degrees per second the chest turns on its card (0 = still)
+	HoverSpin = 0,        -- ...and while you hover it
 	HoverOutline = true,  -- the white outline on hover (same as the coin packs)
 	ClickOpensContents = true, -- clicking the card (not the Buy button) shows what's inside
 	BuyOpensContents = false,  -- true = the Buy button also goes to the contents page first instead of opening straight away
