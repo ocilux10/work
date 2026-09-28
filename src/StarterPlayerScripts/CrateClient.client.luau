@@ -634,6 +634,9 @@ local function buildCards()
 		table.insert(ids, crate.Id .. ":" .. Config.State(crate))
 		local card = templateFor(crate):Clone()
 		card.Name = "Crate_" .. crate.Id
+		-- the shadow also tinted with its own gradient colour (so its colour shows even if the gradient doesn't)
+		local sh = card:FindFirstChild("Shadow")
+		if sh and sh:IsA("ImageLabel") then sh.ImageColor3 = cardColor(sh.Parent) end
 		card.LayoutOrder = i
 		card.Visible = true
 		local entry = {card = card}
