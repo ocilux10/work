@@ -1,0 +1,9 @@
+{
+  "className": "RemoteEvent",
+  "attributes": {
+    "Enabled": true,
+    "FadeIn": 0.15,
+    "FadeOut": 0.3,
+    "Hold": 0.12
+  }
+}

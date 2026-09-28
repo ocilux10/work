@@ -1,0 +1,38 @@
+{
+  "name": "game",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedFirst": {
+      "$path": "src/ReplicatedFirst"
+    },
+    "ReplicatedStorage": {
+      "$path": "src/ReplicatedStorage"
+    },
+    "ServerScriptService": {
+      "$path": "src/ServerScriptService"
+    },
+    "ServerStorage": {
+      "$path": "src/ServerStorage"
+    },
+    "StarterGui": {
+      "$path": "src/StarterGui"
+    },
+    "StarterPlayer": {
+      "StarterCharacterScripts": {
+        "$path": "src/StarterCharacterScripts"
+      },
+      "StarterPlayerScripts": {
+        "$path": "src/StarterPlayerScripts"
+      },
+      "$properties": {
+        "AvatarJointUpgrade": "Enabled",
+        "CameraMaxZoomDistance": 128.0,
+        "CharacterBreakJointsOnDeath": false,
+        "CharacterUseJumpPower": false,
+        "EnableMouseLockOption": false,
+        "HealthDisplayDistance": 0.0,
+        "NameDisplayDistance": 0.0
+      }
+    }
+  }
+}

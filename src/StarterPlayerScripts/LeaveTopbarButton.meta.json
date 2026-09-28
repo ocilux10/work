@@ -1,0 +1,16 @@
+{
+  "attributes": {
+    "Caption": "Leave arena",
+    "Color": {
+      "Color3": [
+        0.07058824,
+        0.07058824,
+        0.08235294
+      ]
+    },
+    "Image": "rbxassetid://7059852436",
+    "ImageScale": 0.8,
+    "MobileOnly": true,
+    "Transparency": 0.08
+  }
+}
