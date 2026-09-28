@@ -10,6 +10,9 @@ local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 local pg = player:WaitForChild("PlayerGui")
 
+-- RESIZING IS OFF (FitSections = false): the shop shows exactly as designed in Studio. Turn it on only after checking
+-- it against the current design.
+local FitSections = false
 local FIT = {"CratesSection1", "ExclusiveSection1", "PassesSection1"} -- sections made to fit their content
 local WRAP = {CratesSection1 = true}                                   -- sections that go onto more rows when full
 local GAP = 8                                                          -- pixels above a heading when a tab scrolls to it
@@ -26,6 +29,7 @@ end
 -- everything is worked out from the DESIGN sizes (scales) and the scrolling frame's own size - never from sizes read
 -- back after changing something (Roblox only updates those on the next frame, so they'd be stale)
 local function reflow()
+	if not FitSections then return end
 	if not scroll or not scroll.Parent or not origCanvas then return end
 	if busy then again = true return end
 	busy = true
