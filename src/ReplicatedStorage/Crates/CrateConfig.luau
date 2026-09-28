@@ -102,9 +102,9 @@ M.Crates = {
 		},
 	},
 	{
-		Id = "Exclusive", Name = "Exclusive Chest", Tag = "LIMITED", Color = C(255, 180, 40), Order = 3,
-		Look = {Body = C(28, 28, 34), Lid = C(38, 38, 46), Trim = C(215, 165, 45), Lock = C(255, 45, 45), LockMaterial = "Neon",
-			Sparkle = true, SparkleColor = C(255, 200, 80)},
+		Id = "Exclusive", Name = "Exclusive Chest", Tag = "LIMITED", Color = C(230, 30, 35), Order = 3,
+		Look = {Body = C(200, 25, 30), Lid = C(225, 40, 45), Trim = C(90, 10, 15), Lock = C(255, 200, 60), LockMaterial = "Neon",
+			Sparkle = true, SparkleColor = C(255, 120, 90)},
 		ShowInShop = true, Start = nil, End = "2026-10-31 23:59", -- leaves the shop at the end of October
 		Price = {Coins = 5000, Robux = 399, ProductId = 0},
 		Contents = {
