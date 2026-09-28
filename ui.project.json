@@ -1,0 +1,9 @@
+{
+  "name": "game-ui",
+  "tree": {
+    "$className": "DataModel",
+    "StarterGui": {
+      "$path": "src/StarterGui"
+    }
+  }
+}

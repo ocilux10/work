@@ -3,26 +3,29 @@
   "tree": {
     "$className": "DataModel",
     "ReplicatedFirst": {
-      "$path": "src/ReplicatedFirst"
+      "$path": "src/ReplicatedFirst",
+      "$ignoreUnknownInstances": true
     },
     "ReplicatedStorage": {
-      "$path": "src/ReplicatedStorage"
+      "$path": "src/ReplicatedStorage",
+      "$ignoreUnknownInstances": true
     },
     "ServerScriptService": {
-      "$path": "src/ServerScriptService"
+      "$path": "src/ServerScriptService",
+      "$ignoreUnknownInstances": true
     },
     "ServerStorage": {
-      "$path": "src/ServerStorage"
-    },
-    "StarterGui": {
-      "$path": "src/StarterGui"
+      "$path": "src/ServerStorage",
+      "$ignoreUnknownInstances": true
     },
     "StarterPlayer": {
       "StarterCharacterScripts": {
-        "$path": "src/StarterCharacterScripts"
+        "$path": "src/StarterCharacterScripts",
+        "$ignoreUnknownInstances": true
       },
       "StarterPlayerScripts": {
-        "$path": "src/StarterPlayerScripts"
+        "$path": "src/StarterPlayerScripts",
+        "$ignoreUnknownInstances": true
       },
       "$properties": {
         "AvatarJointUpgrade": "Enabled",
