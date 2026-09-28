@@ -103,7 +103,8 @@ GS.Defs = {
 	{Tab = "Other", Section = "Privacy", Key = "DuelRequests", Type = "Cycle", Default = "Everyone", Options = {"Everyone", "Friends", "No one"}, Label = "Duel Requests", Sub = "Who can ask to 1v1"},
 	{Tab = "Other", Section = "Privacy", Key = "TradeRequests", Type = "Cycle", Default = "Everyone", Options = {"Everyone", "Friends", "No one"}, Label = "Trade Requests", Sub = "Who can ask to trade"},
 	{Tab = "Other", Section = "Privacy", Key = "AcceptGifts", Type = "Toggle", Default = true, Label = "Accept Gifts", Sub = "Let other players gift you coins"},
-	{Tab = "Other", Section = "Privacy", Key = "AllowJoins", Type = "Toggle", Default = true, Label = "Allow Joins", Sub = "Let players who search your name join your server"},
+	{Tab = "Other", Section = "Privacy", Key = "JoinRequests", Type = "Cycle", Default = "Everyone", Options = {"Everyone", "Friends", "No one"}, Label = "Joins", Sub = "Who can join your server from search"},
+	{Tab = "Other", Section = "Menus", Key = "MenuBalloonFX", Type = "Toggle", Default = true, Label = "Balloon Effects", Sub = "Glow, rings and sparkles on balloon pictures in menus"},
 	-- AIM TRAINING (its own menu: StarterGui > AimTrainingUI > AimTrainingFrame, tabs Target / Movement / Box / Challenge)
 	-- Text = a text box, Button = a button row (Action is sent to the menu's "Action" event)
 	{Tab = "Target", Section = "Target", Key = "AimType", Type = "Cycle", Default = "Bot", Options = {"Bot", "Disc", "Orbs"}, Label = "Target Type", Sub = "Bots, a bullseye disc or floating orbs"},

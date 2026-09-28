@@ -33,7 +33,33 @@ local function give(p, crate)
 end
 
 local busy = {}
-Remote.OnServerInvoke = function(p, action, crateId)
+-- GIFT WITH COINS: ("GiftCoins", crateId, targetPlayer) -> the buyer pays, the target gets the balloon + sees the spin
+local function giftCoins(p, crateId, target)
+	local crate = type(crateId) == "string" and Config.ById[crateId]
+	if not crate or Config.State(crate) ~= "open" then return false, "This chest isn't in the shop" end
+	local price = crate.Price and crate.Price.Coins
+	if not price then return false, "This chest can only be gifted with Robux" end
+	if typeof(target) ~= "Instance" or not target:IsA("Player") or target.Parent ~= Players or target == p then return false, "Pick someone else" end
+	if target:GetAttribute("Pref_AcceptGifts") == false then return false, target.DisplayName .. " isn't accepting gifts" end
+	local d = PlayerData.Get(p)
+	if not d or not PlayerData.Get(target) then return false, "Still loading" end
+	if (d.Coins or 0) < price then return false, Config.NotEnoughCoinsText or "Not enough coins!" end
+	PlayerData.AddCoins(p, -price)
+	local id = give(target, crate)
+	if not id then PlayerData.AddCoins(p, price) return false, "Something went wrong, coins refunded" end
+	Opened:FireClient(target, {Crate = crate.Id, Id = id, From = p.DisplayName})
+	return true, ("You gifted a %s to %s!"):format(crate.Name, target.DisplayName)
+end
+
+Remote.OnServerInvoke = function(p, action, crateId, target)
+	if action == "GiftCoins" then
+		if busy[p] then return false, "Slow down" end
+		busy[p] = true
+		local ok, res, why = pcall(giftCoins, p, crateId, target)
+		task.delay(0.5, function() busy[p] = nil end)
+		if not ok then warn("[CrateServer] " .. tostring(res)) return false, "Something went wrong" end
+		return res, why
+	end
 	if action ~= "Open" then return false end
 	if busy[p] then return false, "Slow down" end
 	busy[p] = true

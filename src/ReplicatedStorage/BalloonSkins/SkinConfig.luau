@@ -53,92 +53,93 @@ M.Skins = {
 		ExtraFX = {FX = {"Halo", "Sparkles"}, FXColor = C(255, 210, 70), Glow = C(255, 200, 80)}},
 
 	-------------------------------------------------- COMMON
+	-- (every balloon below has its own colour + shape + material combo: no two look the same)
 	{Id = "Bubblegum", Name = "Bubblegum", Type = "Balloon", Rarity = "Common", Size = 1.2, Desc = "Pink, chewy and ready to pop.",
-		Look = {Shape = "Default", Color = C(255, 130, 190), Material = "SmoothPlastic", Reflectance = 0.05}},
+		Look = {Shape = "Default", Color = C(255, 120, 185), Material = "SmoothPlastic", Reflectance = 0.05, FX = {"Bubbles"}, FXColor = C(255, 170, 215)}},
 	{Id = "Mint", Name = "Mint", Type = "Balloon", Rarity = "Common", Size = 1.2, Desc = "Fresh as it gets.",
-		Look = {Shape = "Default", Color = C(130, 235, 190), Material = "SmoothPlastic", Reflectance = 0.05}},
+		Look = {Shape = "Default", Color = C(110, 230, 170), Material = "SmoothPlastic", Reflectance = 0.05}},
 	{Id = "Sky", Name = "Sky", Type = "Balloon", Rarity = "Common", Size = 1.2, Desc = "A little piece of a clear day.",
-		Look = {Shape = "Default", Color = C(120, 190, 255), Material = "SmoothPlastic", Reflectance = 0.05}},
+		Look = {Shape = "Default", Color = C(95, 175, 255), Material = "SmoothPlastic", Reflectance = 0.05}},
 	{Id = "Lemon", Name = "Lemon", Type = "Balloon", Rarity = "Common", Size = 1.2, Desc = "Sour on impact.",
-		Look = {Shape = "Default", Color = C(255, 230, 80), Material = "SmoothPlastic", Reflectance = 0.05}},
+		Look = {Shape = "Default", Color = C(255, 225, 60), Material = "SmoothPlastic", Reflectance = 0.05}},
 	{Id = "Coal", Name = "Coal", Type = "Balloon", Rarity = "Common", Size = 1.2, Desc = "For the ones on the naughty list.",
-		Look = {Shape = "Default", Color = C(45, 45, 50), Material = "Slate", FX = {"Smoke"}, FXColor = C(40, 40, 40)}},
+		Look = {Shape = "Default", Color = C(50, 50, 56), Material = "Slate", FX = {"Smoke"}, FXColor = C(60, 60, 60)}},
 	{Id = "Beehive", Name = "Beehive", Type = "Balloon", Rarity = "Common", Size = 1.2, Desc = "The honeycomb's plain cousin.",
-		Look = {Shape = "Honeycomb", Color = C(220, 150, 40), Material = "SmoothPlastic"}},
+		Look = {Shape = "Honeycomb", Color = C(150, 95, 35), Material = "Wood"}},
 	{Id = "Peppermint", Name = "Peppermint", Type = "Balloon", Rarity = "Common", Size = 1.2, Desc = "Red, white and minty.",
-		Look = {Shape = "CandySwirl", Color = C(235, 60, 60), KeepTexture = true}},
+		Look = {Shape = "CandySwirl", Color = C(230, 45, 55), Material = "SmoothPlastic", Reflectance = 0.1}},
 
 	-------------------------------------------------- RARE
 	{Id = "Chrome", Name = "Chrome", Type = "Balloon", Rarity = "Rare", Size = 1.2, Desc = "You can see yourself in it.",
-		Look = {Shape = "Default", Color = C(200, 205, 215), Material = "Foil", Reflectance = 0.45, FX = {"Sparkles"}, FXColor = C(255, 255, 255)}},
+		Look = {Shape = "Default", Color = C(175, 180, 190), Material = "Metal", Reflectance = 0.45, FX = {"Sparkles"}, FXColor = C(255, 255, 255)}},
 	{Id = "GlassBalloon", Name = "Glass", Type = "Balloon", Rarity = "Rare", Size = 1.2, Desc = "Handle with care.",
-		Look = {Shape = "Default", Color = C(170, 235, 255), Material = "Glass", Transparency = 0.35, Reflectance = 0.2, FX = {"Bubbles"}, FXColor = C(200, 245, 255)}},
+		Look = {Shape = "Default", Color = C(150, 240, 225), Material = "Glass", Transparency = 0.3, Reflectance = 0.2, FX = {"Bubbles"}, FXColor = C(200, 255, 245)}},
 	{Id = "NeonLime", Name = "Neon Lime", Type = "Balloon", Rarity = "Rare", Size = 1.2, Desc = "Visible from space.",
-		Look = {Shape = "Default", Color = C(120, 255, 60), Material = "Neon", Glow = C(120, 255, 60)}},
+		Look = {Shape = "Default", Color = C(140, 255, 40), Material = "Neon", Glow = C(140, 255, 40), FX = {"Aura"}, FXColor = C(140, 255, 40)}},
 	{Id = "Marble", Name = "Marble", Type = "Balloon", Rarity = "Rare", Size = 1.2, Desc = "Carved by a very patient sculptor.",
-		Look = {Shape = "Default", Color = C(235, 235, 240), Material = "Marble", Reflectance = 0.1}},
+		Look = {Shape = "Default", Color = C(240, 236, 228), Material = "Marble", Reflectance = 0.1}},
 	{Id = "CottonCandy", Name = "Cotton Candy", Type = "Balloon", Rarity = "Rare", Size = 1.2, Desc = "Fluffy, pastel and very sweet.",
-		Look = {Shape = "CandySwirl", Color = C(200, 170, 255), KeepTexture = true, FX = {"Sparkles"}, FXColor = C(255, 180, 230), FXColor2 = C(170, 220, 255)}},
+		Look = {Shape = "CandySwirl", Color = C(190, 165, 255), Material = "Fabric", FX = {"Sparkles"}, FXColor = C(255, 180, 230), FXColor2 = C(170, 220, 255)}},
 	{Id = "Lovestruck", Name = "Lovestruck", Type = "Balloon", Rarity = "Rare", Size = 1.2, Desc = "Hit someone with love. Literally.",
-		Look = {Shape = "Heartbreak", Color = C(255, 70, 120), KeepTexture = true, FX = {"Sparkles"}, FXColor = C(255, 120, 170)}},
+		Look = {Shape = "Heartbreak", Color = C(255, 90, 140), Material = "SmoothPlastic", Reflectance = 0.15, FX = {"Sparkles"}, FXColor = C(255, 140, 180)}},
 	{Id = "Glacier", Name = "Glacier", Type = "Balloon", Rarity = "Rare", Size = 1.2, Desc = "Slow, cold and unstoppable.",
-		Look = {Shape = "Frostbite", Color = C(160, 215, 255), Material = "Ice", Reflectance = 0.15, FX = {"Snow"}, FXColor = C(230, 245, 255)}},
+		Look = {Shape = "Frostbite", Color = C(120, 190, 255), Material = "Ice", Reflectance = 0.15, FX = {"Snow"}, FXColor = C(230, 245, 255)}},
 	{Id = "StormCloud", Name = "Storm Cloud", Type = "Balloon", Rarity = "Rare", Size = 1.2, Desc = "Grumbling, grey and about to rain.",
-		Look = {Shape = "Thunder", Color = C(110, 115, 130), Material = "SmoothPlastic", FX = {"Smoke"}, FXColor = C(90, 95, 110)}},
+		Look = {Shape = "Thunder", Color = C(105, 110, 128), Material = "Concrete", FX = {"Smoke"}, FXColor = C(90, 95, 110)}},
 
 	-------------------------------------------------- EPIC
 	{Id = "GoldRush", Name = "Gold Rush", Type = "Balloon", Rarity = "Epic", Size = 1.2, Desc = "Struck it rich.",
-		Look = {Shape = "Default", Color = C(255, 195, 50), Material = "Foil", Reflectance = 0.35, FX = {"Sparkles"}, FXColor = C(255, 225, 120), Glow = C(255, 200, 80)}},
+		Look = {Shape = "Default", Color = C(255, 185, 30), Material = "Foil", Reflectance = 0.35, FX = {"Sparkles"}, FXColor = C(255, 225, 120), Glow = C(255, 200, 80)}},
 	{Id = "Hologram", Name = "Hologram", Type = "Balloon", Rarity = "Epic", Size = 1.2, Desc = "Projected from somewhere far away.",
-		Look = {Shape = "Default", Color = C(80, 220, 255), Material = "ForceField", FX = {"Vortex"}, FXColor = C(80, 220, 255), Glow = C(80, 220, 255)}},
+		Look = {Shape = "Default", Color = C(40, 130, 255), Material = "ForceField", FX = {"Vortex"}, FXColor = C(80, 200, 255), Glow = C(60, 160, 255)}},
 	{Id = "RoyalJelly", Name = "Royal Jelly", Type = "Balloon", Rarity = "Epic", Size = 1.2, Desc = "Only the queen bee gets this.",
-		Look = {Shape = "Honeycomb", Color = C(255, 175, 30), Material = "Glass", Transparency = 0.15, FX = {"Drip", "Sparkles"}, FXColor = C(255, 190, 50), Glow = C(255, 170, 40)}},
+		Look = {Shape = "Honeycomb", Color = C(255, 215, 90), Material = "Foil", Reflectance = 0.2, FX = {"Drip", "Sparkles"}, FXColor = C(255, 190, 50), Glow = C(255, 170, 40)}},
 	{Id = "BrokenHearted", Name = "Broken Hearted", Type = "Balloon", Rarity = "Epic", Size = 1.2, Desc = "Some wounds never heal.",
-		Look = {Shape = "Heartbreak", Color = C(90, 30, 120), KeepTexture = true, FX = {"Smoke", "Sparkles"}, FXColor = C(150, 60, 200)}},
+		Look = {Shape = "Heartbreak", Color = C(85, 25, 115), Material = "Slate", FX = {"Smoke", "Sparkles"}, FXColor = C(150, 60, 200)}},
 	{Id = "AcidRain", Name = "Acid Rain", Type = "Balloon", Rarity = "Epic", Size = 1.2, Desc = "Bring an umbrella.",
-		Look = {Shape = "Toxic", Color = C(210, 255, 40), Material = "Neon", FX = {"Drip", "Bubbles"}, FXColor = C(200, 255, 60), Glow = C(180, 255, 40)}},
+		Look = {Shape = "Toxic", Color = C(215, 255, 30), Material = "Neon", FX = {"Drip", "Bubbles"}, FXColor = C(200, 255, 60), Glow = C(180, 255, 40)}},
 	{Id = "Corrupted", Name = "Corrupted", Type = "Balloon", Rarity = "Epic", Size = 1.2, Desc = "Something went very wrong.",
-		Look = {Shape = "Glitch", Color = C(255, 40, 200), Material = "ForceField", FX = {"Sparkles"}, FXColor = C(255, 60, 220), FXColor2 = C(60, 255, 230)}},
+		Look = {Shape = "Glitch", Color = C(255, 30, 190), Material = "ForceField", FX = {"Sparkles"}, FXColor = C(255, 60, 220), FXColor2 = C(60, 255, 230)}},
 	{Id = "Magma", Name = "Magma", Type = "Balloon", Rarity = "Epic", Size = 1.2, Desc = "Straight out of a volcano.",
-		Look = {Shape = "Inferno", Color = C(120, 30, 10), Material = "CrackedLava", FX = {"Embers"}, FXColor = C(255, 140, 40), Glow = C(255, 90, 20)}},
+		Look = {Shape = "Inferno", Color = C(210, 80, 15), Material = "CrackedLava", FX = {"Embers"}, FXColor = C(255, 140, 40), Glow = C(255, 90, 20)}},
 
 	-------------------------------------------------- LEGENDARY
 	{Id = "Blizzard", Name = "Blizzard", Type = "Balloon", Rarity = "Legendary", Size = 1.2, Desc = "A snowstorm on a string.",
-		Look = {Shape = "Frostbite", Color = C(235, 250, 255), Material = "Glass", Transparency = 0.1, FX = {"Snow", "Aura"}, FXColor = C(200, 235, 255), Glow = C(180, 225, 255)}},
+		Look = {Shape = "Frostbite", Color = C(245, 250, 255), Material = "Snow", FX = {"Snow", "Aura"}, FXColor = C(200, 235, 255), Glow = C(180, 225, 255)}},
 	{Id = "Radioactive", Name = "Radioactive", Type = "Balloon", Rarity = "Legendary", Size = 1.2, Desc = "Glows in the dark. And the light.",
-		Look = {Shape = "Toxic", Color = C(70, 255, 70), Material = "Neon", FX = {"Aura", "Embers"}, FXColor = C(90, 255, 90), Glow = {Color = C(70, 255, 70), Brightness = 2.5, Range = 10}}},
+		Look = {Shape = "Toxic", Color = C(0, 200, 95), Material = "Neon", FX = {"Aura", "Embers"}, FXColor = C(90, 255, 140), Glow = {Color = C(40, 255, 120), Brightness = 2.5, Range = 10}}},
 	{Id = "Error404", Name = "Error 404", Type = "Balloon", Rarity = "Legendary", Size = 1.2, Desc = "Balloon not found.",
-		Look = {Shape = "Glitch", Color = C(255, 30, 30), Material = "Neon", FX = {"Vortex", "Implode"}, FXColor = C(255, 40, 40), FXColor2 = C(20, 20, 20)}},
+		Look = {Shape = "Glitch", Color = C(230, 20, 20), Material = "Neon", FX = {"Vortex", "Implode"}, FXColor = C(255, 40, 40), FXColor2 = C(20, 20, 20)}},
 	{Id = "BlueFlame", Name = "Blue Flame", Type = "Balloon", Rarity = "Legendary", Size = 1.2, Desc = "The hottest part of the fire.",
-		Look = {Shape = "Inferno", Color = C(40, 110, 255), Material = "Neon", FX = {"Fire", "Embers"}, FXColor = C(90, 170, 255), FXColor2 = C(20, 40, 255), Glow = C(60, 140, 255)}},
+		Look = {Shape = "Inferno", Color = C(30, 90, 255), Material = "Neon", FX = {"Fire", "Embers"}, FXColor = C(90, 170, 255), FXColor2 = C(20, 40, 255), Glow = C(60, 140, 255)}},
 	{Id = "Voltage", Name = "Voltage", Type = "Balloon", Rarity = "Legendary", Size = 1.2, Desc = "Ten thousand volts, handle with gloves.",
-		Look = {Shape = "Thunder", Color = C(255, 235, 50), Material = "Neon", FX = {"Vortex", "Embers"}, FXColor = C(255, 245, 120), FXColor2 = C(120, 220, 255), Glow = C(255, 240, 80)}},
+		Look = {Shape = "Thunder", Color = C(255, 230, 40), Material = "Neon", FX = {"Vortex", "Embers"}, FXColor = C(255, 245, 120), FXColor2 = C(120, 220, 255), Glow = C(255, 240, 80)}},
 	{Id = "Eclipse", Name = "Eclipse", Type = "Balloon", Rarity = "Legendary", Size = 1.2, Desc = "When the moon covers the sun.",
-		Look = {Shape = "ShadowVoid", Color = C(15, 15, 20), Material = "SmoothPlastic", FX = {"Ring", "Aura"}, FXColor = C(255, 150, 40), Glow = C(255, 130, 40)}},
+		Look = {Shape = "ShadowVoid", Color = C(120, 55, 15), Material = "Metal", Reflectance = 0.2, FX = {"Ring", "Aura"}, FXColor = C(255, 150, 40), Glow = C(255, 130, 40)}},
 	{Id = "Nebula", Name = "Nebula", Type = "Balloon", Rarity = "Legendary", Size = 1.2, Desc = "Where stars are born.",
-		Look = {Shape = "Cosmic", Color = C(230, 110, 255), Material = "Glass", Transparency = 0.1, FX = {"Stars", "Smoke"}, FXColor = C(255, 140, 230), FXColor2 = C(120, 90, 255)}},
+		Look = {Shape = "Cosmic", Color = C(225, 95, 245), Material = "Foil", Reflectance = 0.15, FX = {"Stars", "Smoke"}, FXColor = C(255, 140, 230), FXColor2 = C(120, 90, 255)}},
 	{Id = "Emperor", Name = "Emperor", Type = "Balloon", Rarity = "Legendary", Size = 1.2, Desc = "Bow before it.",
-		Look = {Shape = "Royal", Color = C(110, 40, 190), Material = "Foil", Reflectance = 0.25, FX = {"Sparkles", "Halo"}, FXColor = C(255, 210, 70)}},
+		Look = {Shape = "Royal", Color = C(105, 35, 185), Material = "Foil", Reflectance = 0.25, FX = {"Sparkles", "Halo"}, FXColor = C(255, 210, 70)}},
 
 	-------------------------------------------------- MYTHIC
 	{Id = "Hellfire", Name = "Hellfire", Type = "Balloon", Rarity = "Mythic", Size = 1.2, Desc = "Forged in the underworld.",
-		Look = {Shape = "Inferno", Color = C(25, 10, 10), Material = "CrackedLava", FX = {"Fire", "Smoke", "Embers"}, FXColor = C(255, 60, 20), FXColor2 = C(120, 0, 0), Glow = {Color = C(255, 50, 20), Brightness = 2.5, Range = 10}}},
+		Look = {Shape = "Inferno", Color = C(110, 0, 10), Material = "Basalt", FX = {"Fire", "Smoke", "Embers"}, FXColor = C(255, 60, 20), FXColor2 = C(120, 0, 0), Glow = {Color = C(255, 50, 20), Brightness = 2.5, Range = 10}}},
 	{Id = "Plasma", Name = "Plasma", Type = "Balloon", Rarity = "Mythic", Size = 1.2, Desc = "The fourth state of matter.",
-		Look = {Shape = "Thunder", Color = C(180, 60, 255), Material = "ForceField", FX = {"Vortex", "Ring", "Sparkles"}, FXColor = C(200, 120, 255), FXColor2 = C(80, 200, 255), Glow = C(170, 90, 255)}},
+		Look = {Shape = "Thunder", Color = C(160, 50, 255), Material = "ForceField", FX = {"Vortex", "Ring", "Sparkles"}, FXColor = C(200, 120, 255), FXColor2 = C(80, 200, 255), Glow = C(170, 90, 255)}},
 	{Id = "Abyss", Name = "Abyss", Type = "Balloon", Rarity = "Mythic", Size = 1.2, Desc = "Stare into it. It stares back.",
-		Look = {Shape = "ShadowVoid", Color = C(10, 15, 45), Material = "Glass", FX = {"Implode", "Smoke", "Stars"}, FXColor = C(40, 90, 255), FXColor2 = C(0, 0, 20), Glow = C(30, 70, 255)}},
+		Look = {Shape = "ShadowVoid", Color = C(15, 35, 120), Material = "Glass", Transparency = 0.1, FX = {"Implode", "Smoke", "Stars"}, FXColor = C(40, 90, 255), FXColor2 = C(0, 0, 20), Glow = C(30, 70, 255)}},
 	{Id = "Galaxy", Name = "Galaxy", Type = "Balloon", Rarity = "Mythic", Size = 1.2, Desc = "Billions of stars and one string.",
-		Look = {Shape = "Cosmic", Color = C(25, 30, 90), KeepTexture = true, FX = {"Stars", "DoubleRing"}, FXColor = C(170, 200, 255), FXColor2 = C(255, 140, 255), Glow = C(120, 140, 255)}},
+		Look = {Shape = "Cosmic", Color = C(20, 40, 95), Material = "Metal", Reflectance = 0.3, FX = {"Stars", "DoubleRing"}, FXColor = C(170, 200, 255), FXColor2 = C(255, 140, 255), Glow = C(120, 140, 255)}},
 	{Id = "Diamond", Name = "Diamond", Type = "Balloon", Rarity = "Mythic", Size = 1.2, Desc = "Pressure made this.",
-		Look = {Shape = "Royal", Color = C(200, 245, 255), Material = "Glass", Transparency = 0.2, Reflectance = 0.5, FX = {"Sparkles", "Aura"}, FXColor = C(220, 250, 255), Glow = C(200, 240, 255)}},
+		Look = {Shape = "Royal", Color = C(165, 235, 255), Material = "Glass", Transparency = 0.15, Reflectance = 0.5, FX = {"Sparkles", "Aura"}, FXColor = C(220, 250, 255), Glow = C(200, 240, 255)}},
 
 	-------------------------------------------------- EXCLUSIVE
 	{Id = "RainbowPrism", Name = "Rainbow Prism", Type = "Balloon", Rarity = "Exclusive", Size = 1.2, Desc = "All the colours at once.",
-		Look = {Shape = "Default", Color = C(255, 255, 255), Material = "Glass", Transparency = 0.15, Reflectance = 0.3, FX = {"Sparkles", "Ring", "Aura"}, FXColor = "Rainbow", Glow = C(255, 255, 255)}},
+		Look = {Shape = "Default", Color = C(215, 185, 255), Material = "Foil", Reflectance = 0.3, FX = {"Sparkles", "Ring", "Aura"}, FXColor = "Rainbow", Glow = C(255, 255, 255), RainbowBody = true}},
 	{Id = "Celestial", Name = "Celestial", Type = "Balloon", Rarity = "Exclusive", Size = 1.2, Desc = "Sent down from the heavens.",
-		Look = {Shape = "Royal", Color = C(255, 240, 200), Material = "Neon", FX = {"Halo", "DoubleRing", "Sparkles", "Aura"}, FXColor = C(255, 225, 130), FXColor2 = C(255, 255, 255), Glow = {Color = C(255, 230, 150), Brightness = 3, Range = 12}}},
+		Look = {Shape = "Royal", Color = C(255, 205, 90), Material = "Neon", FX = {"Halo", "DoubleRing", "Sparkles", "Aura"}, FXColor = C(255, 225, 130), FXColor2 = C(255, 255, 255), Glow = {Color = C(255, 230, 150), Brightness = 3, Range = 12}}},
 	{Id = "VoidKing", Name = "Void King", Type = "Balloon", Rarity = "Exclusive", Size = 1.2, Desc = "Rules over nothing. And everything.",
-		Look = {Shape = "ShadowVoid", Color = C(10, 5, 15), Material = "SmoothPlastic", FX = {"Fire", "DoubleRing", "Implode", "Halo"}, FXColor = C(170, 60, 255), FXColor2 = C(40, 0, 80), Glow = {Color = C(150, 50, 255), Brightness = 3, Range = 12}}},
+		Look = {Shape = "ShadowVoid", Color = C(75, 10, 120), Material = "CrackedLava", FX = {"Fire", "DoubleRing", "Implode", "Halo"}, FXColor = C(170, 60, 255), FXColor2 = C(40, 0, 80), Glow = {Color = C(150, 50, 255), Brightness = 3, Range = 12}}},
 }
 M.DefaultId = "Default" -- everyone always has it; can't be deleted
 
@@ -151,6 +152,19 @@ M.ById = {}
 for i, s in M.Skins do s.Index = i M.ById[s.Id] = s end
 
 function M.Get(id) return M.ById[id] or M.ById[M.DefaultId] end
+-- ViewportFrames (menu pictures) can't show Neon (all white), ForceField (just an outline) or see-through Glass well:
+-- this swaps them for materials that keep the balloon's real colour there. SkinConfig.ForViewport(part) -> part
+M.ViewportSwap = {Neon = "SmoothPlastic", ForceField = "Glass", Glass = "Glass"}
+function M.ForViewport(part)
+	if not (part and part:IsA("BasePart")) then return part end
+	local swap = M.ViewportSwap[part.Material.Name]
+	if swap then
+		part.Material = Enum.Material[swap]
+		if swap == "Glass" then part.Transparency = math.min(part.Transparency, 0.1) end
+		if part.Material == Enum.Material.SmoothPlastic then part.Reflectance = math.max(part.Reflectance, 0.15) end
+	end
+	return part
+end
 -- in-hand / thrown size multiplier of a balloon (Size above; 1 when not set)
 function M.Size(id) local s = M.ById[id or ""] return (s and tonumber(s.Size)) or 1 end
 function M.Rarity(id) local s = M.Get(id) return M.Rarities[s.Rarity] or M.Rarities.Common end

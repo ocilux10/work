@@ -147,7 +147,7 @@ local function openPicker(onPick)
 				local bar = c:FindFirstChild("Bar") if bar then bar.BackgroundColor3 = r.Color end
 				local cnt = c:FindFirstChild("Count") if cnt then cnt.Visible = false end
 				local vp = c:FindFirstChild("View")
-				local m = Skins.Model(s.Id)
+				local m = Skins.ForViewport(Skins.Model(s.Id))
 				if vp and m then
 					m.CFrame = CFrame.new()
 					m.Parent = vp

@@ -19,6 +19,7 @@ local Opened = folder:WaitForChild("Opened")
 local Skins = require(RS:WaitForChild("BalloonSkins"):WaitForChild("SkinConfig"))
 local SFX = require(RS:WaitForChild("SFX"))
 local Purchase = require(RS:WaitForChild("Purchase"))
+local CardFX = require(RS:WaitForChild("BalloonSkins"):WaitForChild("CardFX"))
 
 local function fmt(n) return (tostring(math.floor(n)):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")) end
 local function setText(o, t) if o and (o:IsA("TextLabel") or o:IsA("TextButton")) then o.Text = t end end
@@ -34,7 +35,6 @@ end
 -- the main price (coins when it has one)
 local function priceText(crate) return Config.HasCoins(crate) and coinText(crate) or robuxText(crate) end
 local function isRobux(crate) return not Config.HasCoins(crate) end -- (Robux only)
-local function canGift(crate) return Config.RobuxReady(crate) end
 local function now() return workspace:GetServerTimeNow() end
 -- "LEAVES IN 2d 5h" / "COMING IN 3h 12m" / nil
 local function timerText(crate)
@@ -70,7 +70,7 @@ local function showChest(vp, crate)
 end
 local function showBalloon(vp, id)
 	clearVp(vp)
-	local m = Skins.Model(id)
+	local m = Skins.ForViewport(Skins.Model(id))
 	if not m then return end
 	m.CFrame = CFrame.new()
 	m.Parent = vp
@@ -79,6 +79,7 @@ local function showBalloon(vp, id)
 	cam.CFrame = CFrame.lookAt(Vector3.new(0, m.Size.Y * 0.05, m.Size.Y * 2.45), Vector3.zero)
 	cam.Parent = vp
 	vp.CurrentCamera = cam
+	CardFX.Attach(vp, id)
 end
 -- balloon card look (spin cells + contents items share the same parts: SkinName / SkinType / Bar / RarityGlow / View)
 local function paintBalloon(c, id)
@@ -323,6 +324,89 @@ Opened.OnClientEvent:Connect(function(data)
 	end
 end)
 
+------------------------------------------------------------ GIFTING A CHEST (coins or Robux)
+-- Coins: a copy of Main > GiftFrame (the same player list the coin packs use) - pick someone, you pay, they get the spin.
+-- Robux: the shop's own Robux gift list (ShopFrame > GiftCrate). Chests with both: a "Pay with Robux" button switches.
+local NameBadge = require(RS:WaitForChild("NameBadge"))
+local ShopConfigMod = require(RS:WaitForChild("ShopConfig"))
+local giftUI, giftRows, giftCrate = nil, {}, nil
+local function canGiftAny(crate)
+	return ShopConfigMod.GiftingEnabled ~= false and Config.State(crate) == "open" and (Config.HasCoins(crate) or Config.RobuxReady(crate))
+end
+local function closeGift(backToShop)
+	if giftUI then giftUI.Visible = false end
+	if backToShop and shop then shop.Visible = true end
+end
+local function robuxGift(crate)
+	closeGift(false)
+	local ev = shop and shop:FindFirstChild("GiftCrate")
+	if ev then ev:Fire(crate) end
+end
+local function openGift(crate)
+	if not canGiftAny(crate) then SFX.Play("Error") return end
+	if not Config.HasCoins(crate) then robuxGift(crate) return end
+	local src = main and main:FindFirstChild("GiftFrame")
+	if not src then SFX.Play("Error") return end
+	if not (giftUI and giftUI.Parent) then
+		giftUI = src:Clone()
+		giftUI.Name = "CrateGiftFrame"
+		giftUI.Parent = main
+		local cancel = giftUI:FindFirstChild("Cancel", true)
+		if cancel and cancel:IsA("GuiButton") then
+			cancel.Activated:Connect(function() closeGift(true) end)
+			-- "Pay with Robux" next to Cancel (hidden for coin-only chests)
+			local pay = cancel:Clone()
+			pay.Name = "PayRobux"
+			local w = cancel.Size
+			pay.Position = cancel.Position - UDim2.new(w.X.Scale * 1.1, w.X.Offset * 1.1 + (w.X.Offset == 0 and 0 or 6), 0, 0)
+			pay.Parent = cancel.Parent
+			btnText(pay, "Pay with \u{E002}")
+			pay.Activated:Connect(function() if giftCrate then robuxGift(giftCrate) end end)
+		end
+	end
+	local sc = giftUI:FindFirstChild("ScrollingFrame")
+	local tpl = sc and sc:FindFirstChild("Frame")
+	if not tpl then SFX.Play("Error") return end
+	tpl.Visible = false
+	for _, r in giftRows do r:Destroy() end
+	table.clear(giftRows)
+	local pay = giftUI:FindFirstChild("PayRobux", true)
+	giftCrate = crate
+	if pay then pay.Visible = Config.RobuxReady(crate) end
+	local any = false
+	for i, p in Players:GetPlayers() do
+		if p ~= player then
+			any = true
+			local r = tpl:Clone()
+			r.Name = "Row_" .. p.UserId
+			r.Visible = true
+			r.LayoutOrder = i
+			local u, d = r:FindFirstChild("Username"), r:FindFirstChild("Display")
+			if u then u.Text = NameBadge.Of(p) end
+			if d then d.Text = "@" .. p.Name end
+			local av = r:FindFirstChild("Avatar")
+			if av and av:IsA("ImageLabel") then av.Image = ("rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150"):format(p.UserId) end
+			local b = r:FindFirstChild("Gift") or r:FindFirstChildWhichIsA("GuiButton")
+			if b then
+				local closed = p:GetAttribute("Pref_AcceptGifts") == false
+				btnText(b, closed and "Off" or coinText(crate))
+				b.Activated:Connect(function()
+					local ok, msg = Remote:InvokeServer("GiftCoins", crate.Id, p)
+					SFX.Play(ok and "QuestComplete" or "Error")
+					notice(msg or (ok and "Gifted!" or "Couldn't gift"))
+					if ok then closeGift(true) end
+				end)
+			end
+			r.Parent = sc
+			table.insert(giftRows, r)
+		end
+	end
+	local empty = sc:FindFirstChild("Empty") if empty then empty.Visible = not any end
+	if shop then shop.Visible = false end
+	giftUI.Visible = true
+	SFX.Play("Open")
+end
+
 ------------------------------------------------------------ CONTENTS PAGE (ShopFrame > CrateView)
 local function setViewOpen(on)
 	if not view then return end
@@ -344,7 +428,7 @@ local function paintView()
 		btnText(open, state == "soon" and "SOON" or fill(Config.OpenText or "Open  {price}", {price = priceText(crate)}))
 	end
 	local gift = view:FindFirstChild("Gift")
-	if gift then gift.Visible = canGift(crate) and state == "open" end
+	if gift then gift.Visible = canGiftAny(crate) end
 	local orb = view:FindFirstChild("OpenRobux")
 	if orb then
 		orb.Visible = Config.HasCoins(crate) and Config.HasRobux(crate) and state == "open"
@@ -392,7 +476,7 @@ local function paintCard(entry, crate)
 	btnText(card:FindFirstChild("Buy"), state == "soon" and "SOON" or priceText(crate))
 	local rb = card:FindFirstChild("BuyRobux")
 	if rb then rb.Visible = state == "open" btnText(rb, robuxText(crate)) end
-	local gift = card:FindFirstChild("Gift") if gift then gift.Visible = canGift(crate) and state == "open" end
+	local gift = card:FindFirstChild("Gift") if gift then gift.Visible = canGiftAny(crate) end
 	local t = timerText(crate)
 	local tl = card:FindFirstChild("Timer")
 	if tl then tl.Visible = t ~= nil if t then setText(tl, t) end end
@@ -478,10 +562,7 @@ local function buildCards()
 		end
 		local gift = card:FindFirstChild("Gift")
 		if gift and gift:IsA("GuiButton") then
-			gift.Activated:Connect(function()
-				local ev = shop:FindFirstChild("GiftCrate")
-				if ev then ev:Fire(crate) end
-			end)
+			gift.Activated:Connect(function() openGift(crate) end)
 		end
 		paintCard(entry, crate)
 		card.Parent = section
@@ -564,10 +645,7 @@ local function hook(m)
 		end
 		local gift = view:FindFirstChild("Gift")
 		if gift and gift:IsA("GuiButton") then
-			gift.Activated:Connect(function()
-				local ev = shop:FindFirstChild("GiftCrate")
-				if ev and viewing then ev:Fire(viewing) end
-			end)
+			gift.Activated:Connect(function() if viewing then openGift(viewing) end end)
 		end
 		-- closing the shop / a top tab = back to the list
 		shop:GetPropertyChangedSignal("Visible"):Connect(function()

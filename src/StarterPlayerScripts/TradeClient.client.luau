@@ -55,7 +55,7 @@ local function fillSlot(s, id, n)
 	if vp and vp:IsA("ViewportFrame") and vp:GetAttribute("Shows") ~= id then
 		vp:SetAttribute("Shows", id)
 		for _, c in vp:GetChildren() do if not c:IsA("UIComponent") then c:Destroy() end end
-		local m = Skins.Model(id)
+		local m = Skins.ForViewport(Skins.Model(id))
 		if m then
 			m.CFrame = CFrame.new()
 			m.Parent = vp
@@ -64,6 +64,7 @@ local function fillSlot(s, id, n)
 			cam.CFrame = CFrame.lookAt(Vector3.new(0, m.Size.Y * 0.05, m.Size.Y * 2.5), Vector3.zero)
 			cam.Parent = vp
 			vp.CurrentCamera = cam
+			require(RS:WaitForChild("BalloonSkins"):WaitForChild("CardFX")).Attach(vp, id)
 		end
 	end
 end

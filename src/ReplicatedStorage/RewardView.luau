@@ -36,7 +36,7 @@ function M.Show(icon, reward, coinImage)
 		m = cfg.ModelFor(cfg.ById[main.Id])
 	else
 		local Skins = require(RS:WaitForChild("BalloonSkins"):WaitForChild("SkinConfig"))
-		m = Skins.Model(main.Id)
+		m = Skins.ForViewport(Skins.Model(main.Id))
 	end
 	if not m then return end
 	if m:IsA("BasePart") then local mdl = Instance.new("Model") m.CFrame = CFrame.new() m.Parent = mdl m = mdl end

@@ -7,7 +7,6 @@
 -- ShopServer gives them. Gifts use the shop's gift list (ShopFrame > GiftCrate event).
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
@@ -16,6 +15,7 @@ local ShopConfig = require(RS:WaitForChild("ShopConfig"))
 local Skins = require(RS:WaitForChild("BalloonSkins"):WaitForChild("SkinConfig"))
 local Purchase = require(RS:WaitForChild("Purchase"))
 local SFX = require(RS:WaitForChild("SFX"))
+local CardFX = require(RS:WaitForChild("BalloonSkins"):WaitForChild("CardFX"))
 
 local function fmt(n) return (tostring(math.floor(n)):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")) end
 local function setText(o, t) if o and (o:IsA("TextLabel") or o:IsA("TextButton")) then o.Text = t end end
@@ -110,7 +110,7 @@ local function showBalloon(card, id)
 		vp.Parent = card
 	end
 	for _, c in vp:GetChildren() do if not c:IsA("UIComponent") then c:Destroy() end end
-	local m = Skins.Model(id)
+	local m = Skins.ForViewport(Skins.Model(id))
 	if not m then return end
 	m.CFrame = CFrame.new()
 	m.Parent = vp
@@ -119,7 +119,7 @@ local function showBalloon(card, id)
 	cam.CFrame = CFrame.lookAt(Vector3.new(0, m.Size.Y * 0.05, m.Size.Y * 2.6), Vector3.zero)
 	cam.Parent = vp
 	vp.CurrentCamera = cam
-	card:SetAttribute("SpinModel", true)
+	CardFX.Attach(vp, id)
 end
 
 local function paintExclusives()
@@ -241,13 +241,5 @@ task.spawn(function()
 	while true do
 		task.wait(1)
 		if shopFrame and shopFrame.Visible then paintExclusives() end
-	end
-end)
-RunService.RenderStepped:Connect(function(dt)
-	if not (shopFrame and shopFrame.Visible) then return end
-	for _, e in exCards do
-		local vp = e.card:FindFirstChild("BalloonView")
-		local m = vp and vp:FindFirstChildWhichIsA("BasePart")
-		if m then m.CFrame = CFrame.Angles(0, math.rad(40) * dt, 0) * m.CFrame end
 	end
 end)

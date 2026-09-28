@@ -85,7 +85,9 @@ return {
 	DuelRequests = "Everyone", -- Duel Requests  {Everyone, Friends, No one}
 	TradeRequests = "Everyone", -- Trade Requests  {Everyone, Friends, No one}
 	AcceptGifts = true, -- Accept Gifts
-	AllowJoins = true, -- Allow Joins (people who search your name can join your server)
+	JoinRequests = "Everyone", -- Joins  {Everyone, Friends, No one}  (who can join your server from search)
+	-- Menus
+	MenuBalloonFX = true, -- Balloon Effects (on balloon pictures in menus)
 
 	-------------------------------- CONTROLLER (Settings > Controls > Controller)
 	-- button names: ButtonA (Cross), ButtonB (Circle), ButtonX (Square), ButtonY (Triangle), ButtonL1 / ButtonR1,

@@ -19,6 +19,7 @@ local Remote = folder:WaitForChild("Remote")
 local GS = require(RS:WaitForChild("GameSettings"))
 local SFX = require(RS:WaitForChild("SFX"))
 local ClientActions = RS:WaitForChild("BalloonCombat"):WaitForChild("ClientActions")
+local CardFX = require(folder:WaitForChild("CardFX")) -- effects + turning on the pictures
 
 local SORTS = {"Rarity", "Name", "Newest", "Amount"}
 local FILTERS = {"All", table.unpack(Skins.RarityOrder or {"Common", "Rare", "Epic", "Legendary", "Mythic"})} -- (SkinConfig.RarityOrder)
@@ -46,7 +47,7 @@ local function btnText(b, t) local l = b and b:FindFirstChild("Text") if l then 
 -- a balloon in a ViewportFrame
 local function showInViewport(vp, id)
 	for _, c in vp:GetChildren() do if not c:IsA("UIComponent") then c:Destroy() end end
-	local m = Skins.Model(id)
+	local m = Skins.ForViewport(Skins.Model(id))
 	if not m then return end
 	m.CFrame = CFrame.new()
 	m.Parent = vp
@@ -56,6 +57,7 @@ local function showInViewport(vp, id)
 	cam.CFrame = CFrame.lookAt(Vector3.new(0, size.Y * 0.05, size.Y * 2.45), Vector3.new(0, 0, 0))
 	cam.Parent = vp
 	vp.CurrentCamera = cam
+	CardFX.Attach(vp, id)
 end
 
 ------------------------------------------------------------ THE MENU
