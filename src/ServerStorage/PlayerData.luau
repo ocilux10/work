@@ -42,6 +42,7 @@ local TEMPLATE = {
 	QuestCycleStart = 0, -- os.time the current 24h quest cycle started (first ever join, then every 24h)
 	Quests = {},         -- {{Id, Progress, Done}, ...}
 	Receipts = {},       -- ids of Robux purchases already given (ServerScriptService > ShopServer)
+	Crates = {},         -- chests you own and haven't opened: {[crateId] = count} (ServerScriptService > CrateServer)
 	Daily = {Day = 0, Last = -1}, -- DAILY REWARDS: the last day claimed (1 = day 1) + which calendar day (ServerScriptService > DailyRewardsServer)
 	LeaderboardClaimed = {}, -- {["2026-09 MonthKills"] = true}: monthly leaderboard rewards already given (LeaderboardRewardsServer)
 	Settings = {},       -- small UI choices (e.g. LobbiesOpen), saved by ServerScriptService > SettingsServer

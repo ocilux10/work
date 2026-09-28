@@ -144,12 +144,18 @@ M.Crates = {
 M.LeavingText = "LEAVES IN {time}"   -- on chests that have an End
 M.ComingText = "COMING IN {time}"    -- on chests shown before their Start
 M.ShowLeavingTimer = true             -- false = no "LEAVES IN" timer on the cards
+M.MaxOpenAll = 100                    -- Open All opens at most this many at once
+M.OwnedText = "Owned ({n})"          -- on the card / contents page
 M.NotSetUpText = "SOON"               -- Robux chest without a ProductId
 M.NotEnoughCoinsText = "Not enough coins!"
 M.ChanceDecimals = 2                  -- how many decimals the % shows at most (0.25%, 12%, 3.5%)
 M.CoinPriceText = "{price} Coins"     -- price on a coin chest's buttons
 M.RobuxPriceText = "\u{E002} {price}" -- price on a Robux chest's buttons (\u{E002} = the Robux icon)
-M.OpenText = "Open  {price}"          -- the Open button on the contents page
+M.OpenText = "Open ({n})"             -- the Open button in the crate view ({n} = how many you own)
+M.OpenAllText = "Open All"            -- shows when you own 2+ (opens them all, no spins)
+M.BoughtText = "+1 {name}!"           -- bought one (it's in your inventory - open it in the crate view)
+M.GiftedStoredText = "{from} gifted you a {name}!"
+M.NoneOwnedText = "You don't have one - buy it first"
 M.OddsText = "1 balloon per open"     -- under the chest on the contents page
 
 -- THE SHOP CARD
@@ -176,6 +182,8 @@ M.Spin = {
 	TitleText = "Opening {name}...",
 	WonText = "You got {balloon}!",
 	GiftedText = "{from} gifted you a {name}!",
+	ResultsText = "You opened {n} {name}s!", -- Open All's list (CrateOpening > Window > Results)
+	ResultsTime = 6,    -- seconds the Open All list stays before it hides by itself (or press Close)
 }
 
 ------------------------------------------------------------ (no need to edit below)

@@ -20,9 +20,12 @@ local function packFor(productId)
 	end
 end
 -- EXCLUSIVES (Robux balloons) and pass GIFTS (a dev product that gives a game pass) - ShopConfig
+-- -> the Exclusive, its index, how many copies that product gives
 local function exclusiveFor(productId)
 	for i, e in ShopConfig.Exclusives or {} do
-		if (e.ProductId or 0) ~= 0 and e.ProductId == productId then return e, i end
+		for _, a in ShopConfig.ExclusiveAmounts(e) do
+			if (a.ProductId or 0) ~= 0 and a.ProductId == productId then return e, i, a.Amount or 1 end
+		end
 	end
 end
 local function passGiftFor(productId)
@@ -62,12 +65,14 @@ ShopRemote.OnServerInvoke = function(p, action, data)
 			pack = {ProductId = crate.Price.ProductId}
 		elseif type(data) == "table" and type(data.Crate) == "string" then
 			-- (the same gift list is used for "Exclusive:<n>" balloons and "Pass:<name>" passes)
-			local n = tonumber(data.Crate:match("^Exclusive:(%d+)$") or "")
+			local n, amountIndex = data.Crate:match("^Exclusive:(%d+):?(%d*)$")
+			n, amountIndex = tonumber(n or ""), tonumber(amountIndex or "") or 1
 			local passName = data.Crate:match("^Pass:(.+)$")
 			if n then
 				local e = (ShopConfig.Exclusives or {})[n]
-				if not e or not ShopConfig.ExclusiveActive(e) or (e.ProductId or 0) == 0 then return false, "That balloon isn't available" end
-				pack = {ProductId = e.ProductId}
+				local a = e and ShopConfig.ExclusiveAmounts(e)[amountIndex]
+				if not e or not a or not ShopConfig.ExclusiveActive(e) or (a.ProductId or 0) == 0 then return false, "That balloon isn't available" end
+				pack = {ProductId = a.ProductId}
 			elseif passName then
 				for _, ps in ShopConfig.Passes or {} do
 					if ps.Name == passName and (ps.GiftProductId or 0) ~= 0 then pack = {ProductId = ps.GiftProductId} end
@@ -100,7 +105,8 @@ MarketplaceService.ProcessReceipt = function(info)
 
 	local pack = packFor(info.ProductId)
 	local crate = not pack and CrateConfig.ByProduct(info.ProductId)
-	local exclusive = not pack and not crate and exclusiveFor(info.ProductId)
+	local exclusive, _, exAmount = nil, nil, 1
+	if not pack and not crate then exclusive, _, exAmount = exclusiveFor(info.ProductId) end
 	local passGift = not pack and not crate and not exclusive and passGiftFor(info.ProductId)
 	if not pack and not crate and not exclusive and not passGift then
 		warn("[Shop] unknown product " .. tostring(info.ProductId) .. " - add it to ReplicatedStorage > ShopConfig (or Crates > CrateConfig)")
@@ -122,8 +128,8 @@ MarketplaceService.ProcessReceipt = function(info)
 		if exclusive then
 			local Skins = require(RS:WaitForChild("BalloonSkins"):WaitForChild("SkinConfig"))
 			local grant = game:GetService("ServerScriptService"):WaitForChild("SkinServer"):WaitForChild("Grant")
-			if not grant:Invoke(receiver, exclusive.Balloon, 1) then return Enum.ProductPurchaseDecision.NotProcessedYet end
-			what = Skins.Get(exclusive.Balloon).Name
+			if not grant:Invoke(receiver, exclusive.Balloon, exAmount) then return Enum.ProductPurchaseDecision.NotProcessedYet end
+			what = (exAmount > 1 and (exAmount .. "x ") or "") .. Skins.Get(exclusive.Balloon).Name
 		else
 			if not givePass(receiver, passGift) then return Enum.ProductPurchaseDecision.NotProcessedYet end
 			what = "the " .. passGift.Name .. " pass"

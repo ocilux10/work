@@ -53,14 +53,29 @@ ShopConfig.OwnedText = "OWNED" -- the Buy button on a pass you have
 
 -- EXCLUSIVES (shop: Main > ShopFrame > EXCLUSIVES - one card per line, in order; unused cards are hidden)
 -- A limited balloon sold for Robux. It leaves the shop at End by itself.
---   Balloon    the balloon's Id (BalloonSkins > SkinConfig)       Robux = the price shown
---   ProductId  a Developer Product for it (0 = not made yet: SOON). Gifting uses the same product.
+--   Balloon    the balloon's Id (BalloonSkins > SkinConfig)
+--   Amounts    the x1 / x2 / x5 / x10 button (clicking it goes to the next one): how many copies, the Robux price shown,
+--              and a Developer Product for EACH amount at that price (ProductId 0 = not made yet: SOON). Gifting uses
+--              the same products. Add / remove lines to change the choices.
 --   Start / End  UTC "YYYY-MM-DD HH:MM" (nil = always). The card shows the time left until End.
 --   Tag        the tag at the top of the card
 ShopConfig.Exclusives = {
-	{Balloon = "RainbowPrism", Robux = 249, ProductId = 0, Start = nil, End = "2026-10-31 23:59", Tag = "EXCLUSIVE"},
-	{Balloon = "Celestial",    Robux = 499, ProductId = 0, Start = nil, End = "2026-10-31 23:59", Tag = "EXCLUSIVE"},
+	{Balloon = "RainbowPrism", Start = nil, End = "2026-10-31 23:59", Tag = "EXCLUSIVE",
+		Amounts = {
+			{Amount = 1,  Robux = 249,  ProductId = 0},
+			{Amount = 2,  Robux = 479,  ProductId = 0},
+			{Amount = 5,  Robux = 1149, ProductId = 0},
+			{Amount = 10, Robux = 2199, ProductId = 0},
+		}},
+	{Balloon = "Celestial", Start = nil, End = "2026-10-31 23:59", Tag = "EXCLUSIVE",
+		Amounts = {
+			{Amount = 1,  Robux = 499,  ProductId = 0},
+			{Amount = 2,  Robux = 949,  ProductId = 0},
+			{Amount = 5,  Robux = 2299, ProductId = 0},
+			{Amount = 10, Robux = 4399, ProductId = 0},
+		}},
 }
+ShopConfig.AmountText = "x{n}"                   -- the amount button
 ShopConfig.ExclusiveTypeText = "{rarity} {type}" -- the small line under the balloon's name ("Exclusive Balloon")
 ShopConfig.OwnedExclusiveText = nil                -- e.g. "OWNED" to stop people buying one they have (nil = can buy more)
 
@@ -72,6 +87,13 @@ function ShopConfig.ExclusiveActive(e, now)
 	if s and now < s then return false end
 	if en and now >= en then return false end
 	return true
+end
+
+
+-- the amounts of an Exclusive (old style Robux / ProductId on the line itself = just x1)
+function ShopConfig.ExclusiveAmounts(e)
+	if type(e.Amounts) == "table" and #e.Amounts > 0 then return e.Amounts end
+	return {{Amount = 1, Robux = e.Robux or 0, ProductId = e.ProductId or 0}}
 end
 
 return ShopConfig

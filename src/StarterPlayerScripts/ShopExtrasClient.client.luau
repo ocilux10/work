@@ -137,8 +137,13 @@ local function paintExclusives()
 				local ok, inv = pcall(function() return game:GetService("HttpService"):JSONDecode(player:GetAttribute("BalloonInv") or "{}") end)
 				owned = ok and type(inv) == "table" and (inv[x.Balloon] or 0) > 0
 			end
-			btnText(card:FindFirstChild("Buy"), owned and ShopConfig.OwnedExclusiveText or ((x.ProductId or 0) == 0 and (ShopConfig.NotSetUpText or "SOON") or robuxText(x.Robux)))
-			local g = card:FindFirstChild("Gift") if g then g.Visible = (x.ProductId or 0) ~= 0 and ShopConfig.GiftingEnabled ~= false end
+			-- the chosen amount (Multiplier button: x1 -> x2 -> x5 -> x10, ShopConfig Amounts)
+			local amounts = ShopConfig.ExclusiveAmounts(x)
+			local a = amounts[e.amount] or amounts[1]
+			btnText(card:FindFirstChild("Multiplier"), ((ShopConfig.AmountText or "x{n}"):gsub("{n}", tostring(a.Amount or 1))))
+			local m = card:FindFirstChild("Multiplier") if m then m.Visible = #amounts > 1 end
+			btnText(card:FindFirstChild("Buy"), owned and ShopConfig.OwnedExclusiveText or ((a.ProductId or 0) == 0 and (ShopConfig.NotSetUpText or "SOON") or robuxText(a.Robux)))
+			local g = card:FindFirstChild("Gift") if g then g.Visible = (a.ProductId or 0) ~= 0 and ShopConfig.GiftingEnabled ~= false end
 		end
 	end
 end
@@ -148,10 +153,12 @@ local function hookExclusives(shop, section)
 	local list = cardsFor(section, #(ShopConfig.Exclusives or {}))
 	for i, x in ShopConfig.Exclusives or {} do
 		local card = list[i]
+		local entry = {card = card, entry = x, index = i, amount = 1}
 		local s = Skins.Get(x.Balloon)
 		local r = Skins.Rarities[s.Rarity] or Skins.Rarities.Common
-		setText(card:FindFirstChild("SkinName"), s.Name)
-		setText(card:FindFirstChild("BalloonName"), ((ShopConfig.ExclusiveTypeText or "{rarity} {type}"):gsub("{rarity}", r.Text):gsub("{type}", s.Type)))
+		-- BalloonName = the big name, SkinName = the small line under it ("Exclusive Balloon")
+		setText(card:FindFirstChild("BalloonName"), s.Name)
+		setText(card:FindFirstChild("SkinName"), ((ShopConfig.ExclusiveTypeText or "{rarity} {type}"):gsub("{rarity}", r.Text):gsub("{type}", s.Type)))
 		local tag = card:FindFirstChild("Tag")
 		if tag then tag.Visible = (x.Tag or "") ~= "" btnText(tag, x.Tag or "") end
 		local bar = card:FindFirstChild("Bar", true) if bar then bar.BackgroundColor3 = r.Color end
@@ -162,13 +169,27 @@ local function hookExclusives(shop, section)
 			buy:SetAttribute("ClickSound", "")
 			buy.Activated:Connect(function()
 				if not ShopConfig.ExclusiveActive(x) then SFX.Play("Error") notice("That balloon isn't in the shop any more") return end
-				if (x.ProductId or 0) == 0 then SFX.Play("Error") notice("This isn't available yet") return end
-				Purchase.Product(x.ProductId)
+				local a = ShopConfig.ExclusiveAmounts(x)[entry.amount] or ShopConfig.ExclusiveAmounts(x)[1]
+				if (a.ProductId or 0) == 0 then SFX.Play("Error") notice("This isn't available yet") return end
+				Purchase.Product(a.ProductId)
 			end)
 		end
 		local g = card:FindFirstChild("Gift")
-		if g and g:IsA("GuiButton") then g.Activated:Connect(function() gift(shop, "Exclusive:" .. i, x.ProductId) end) end
-		table.insert(exCards, {card = card, entry = x, index = i})
+		if g and g:IsA("GuiButton") then
+			g.Activated:Connect(function()
+				local a = ShopConfig.ExclusiveAmounts(x)[entry.amount] or ShopConfig.ExclusiveAmounts(x)[1]
+				gift(shop, "Exclusive:" .. i .. ":" .. entry.amount, a.ProductId)
+			end)
+		end
+		local mult = card:FindFirstChild("Multiplier")
+		if mult and mult:IsA("GuiButton") then
+			mult.Activated:Connect(function()
+				entry.amount = entry.amount % #ShopConfig.ExclusiveAmounts(x) + 1
+				SFX.Play("Toggle")
+				paintExclusives()
+			end)
+		end
+		table.insert(exCards, entry)
 	end
 	paintExclusives()
 end
