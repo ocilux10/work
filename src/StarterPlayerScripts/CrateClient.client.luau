@@ -131,6 +131,8 @@ end
 
 ------------------------------------------------------------ STATE
 local main, shop, scroll, section, cardTpl, view, itemTpl
+local cardTpls = {} -- all the Crate card designs from Studio
+local templateFor -- forward
 local cards = {}        -- crateId -> {card, model, center, hover}
 local shownIds = ""     -- which chests the cards were built for (rebuilt when one leaves / arrives)
 local viewing           -- the chest open on the contents page
@@ -582,9 +584,12 @@ local function paintCard(entry, crate)
 	for _, d in card:GetDescendants() do
 		if d.Name == "CrateName" then setText(d, crate.Name) end
 	end
-	local tag = card:FindFirstChild("Tag")
-	if tag and crate.Color then tag.BackgroundColor3 = crate.Color end
-	local bar = card:FindFirstChild("Bar") if bar and crate.Color then bar.BackgroundColor3 = crate.Color end
+	-- (only one card design: tint it with the chest's Color. Several designs: each keeps its own colours from Studio)
+	if #cardTpls <= 1 and crate.Color then
+		local tag = card:FindFirstChild("Tag")
+		if tag then tag.BackgroundColor3 = crate.Color end
+		local bar = card:FindFirstChild("Bar") if bar then bar.BackgroundColor3 = crate.Color end
+	end
 	local state = Config.State(crate)
 	local pc, pr = card:FindFirstChild("PriceCoins"), card:FindFirstChild("PriceRobux")
 	if pc then pc.Visible = Config.HasCoins(crate) if Config.HasCoins(crate) then setText(pc, fmt(crate.Price.Coins)) end end
@@ -597,6 +602,28 @@ local function paintCard(entry, crate)
 end
 
 
+-- which design card a chest uses: the one whose shadow colour (Shadow > UIGradient, else the Bar) is closest to the
+-- chest's Color in CrateConfig - so each chest keeps its own shadow / bar colours from Studio
+local function cardColor(card)
+	local sh = card:FindFirstChild("Shadow")
+	local g = sh and sh:FindFirstChildOfClass("UIGradient")
+	if g then local k = g.Color.Keypoints return k[#k].Value end
+	local bar = card:FindFirstChild("Bar")
+	local bg = bar and bar:FindFirstChildOfClass("UIGradient")
+	if bg then local k = bg.Color.Keypoints return k[#k].Value end
+	return Color3.new(1, 1, 1)
+end
+templateFor = function(crate)
+	if #cardTpls <= 1 or not crate.Color then return cardTpl end
+	local best, bestD
+	for _, t in cardTpls do
+		local c = cardColor(t)
+		local d = (c.R - crate.Color.R) ^ 2 + (c.G - crate.Color.G) ^ 2 + (c.B - crate.Color.B) ^ 2
+		if not bestD or d < bestD then best, bestD = t, d end
+	end
+	return best or cardTpl
+end
+
 local function buildCards()
 	if not (section and cardTpl) then return end
 	for _, e in cards do e.card:Destroy() end
@@ -605,7 +632,7 @@ local function buildCards()
 	local ids = {}
 	for i, crate in list do
 		table.insert(ids, crate.Id .. ":" .. Config.State(crate))
-		local card = cardTpl:Clone()
+		local card = templateFor(crate):Clone()
 		card.Name = "Crate_" .. crate.Id
 		card.LayoutOrder = i
 		card.Visible = true
@@ -701,14 +728,15 @@ local function hook(m)
 	viewing = nil
 	-- the first Crate card is the template, any other copies made in Studio go
 	if section then
-		local first
+		-- every Crate card in Studio is a design (its colours are matched to a chest in templateFor)
+		table.clear(cardTpls)
 		for _, c in section:GetChildren() do
 			if c:IsA("GuiObject") and (c:FindFirstChild("OwnedAmount") or c:FindFirstChild("ChestView") or c:FindFirstChild("CrateImage") or c:FindFirstChild("Buy")) then
-				if not first then first = c else c:Destroy() end
+				table.insert(cardTpls, c)
 			end
 		end
-		cardTpl = first
-		if cardTpl then cardTpl.Visible = false cardTpl.Parent = nil end
+		cardTpl = cardTpls[1]
+		for _, t in cardTpls do t.Visible = false t.Parent = nil end
 	end
 	if view then
 		local tpls = view:FindFirstChild("Templates")
