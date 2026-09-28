@@ -9,7 +9,7 @@ local PlayerData = require(game:GetService("ServerStorage"):WaitForChild("Player
 local Remote = RS:WaitForChild("Matchmaking"):WaitForChild("Remotes"):WaitForChild("SaveSetting")
 
 local ALLOWED = {LobbiesOpen = "boolean", Prefs = "string"}
-local SERVER_PREFS = {"PartyRequests", "DuelRequests", "TradeRequests", "AcceptGifts"}
+local SERVER_PREFS = {"PartyRequests", "DuelRequests", "TradeRequests", "AcceptGifts", "AllowJoins"}
 local MAX_PREFS = 6000
 
 local function mirror(p, json)

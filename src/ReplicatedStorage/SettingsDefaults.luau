@@ -85,6 +85,7 @@ return {
 	DuelRequests = "Everyone", -- Duel Requests  {Everyone, Friends, No one}
 	TradeRequests = "Everyone", -- Trade Requests  {Everyone, Friends, No one}
 	AcceptGifts = true, -- Accept Gifts
+	AllowJoins = true, -- Allow Joins (people who search your name can join your server)
 
 	-------------------------------- CONTROLLER (Settings > Controls > Controller)
 	-- button names: ButtonA (Cross), ButtonB (Circle), ButtonX (Square), ButtonY (Triangle), ButtonL1 / ButtonR1,

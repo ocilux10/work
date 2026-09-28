@@ -336,10 +336,113 @@ function commands.Join(admin, args)
 	return true, "Joining " .. t.name .. "..."
 end
 
+------------------------------------------------------------ STAT LOOKUP (a player's saved stats, online or not)
+local function fmtNum(n) return (tostring(math.floor(n or 0)):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")) end
+local function fmtTime(sec)
+	sec = math.floor(sec or 0)
+	local d, h, m = sec // 86400, sec % 86400 // 3600, sec % 3600 // 60
+	if d > 0 then return ("%dd %dh"):format(d, h) end
+	if h > 0 then return ("%dh %dm"):format(h, m) end
+	return m .. "m"
+end
+-- {{"Coins", "12,345"}, ...} - the order they're shown in (edit / add lines here)
+local function statRows(d, t, p)
+	local MatchConfig = require(RS:WaitForChild("Matchmaking"):WaitForChild("Config"))
+	local monthNow = os.date("!%Y-%m")
+	local month = d.MonthKey == monthNow
+	local balloons, kinds = 0, 0
+	for _, b in d.Balloons or {} do
+		local n = type(b) == "table" and (b.Count or 0) or 0
+		if n > 0 then balloons += n kinds += 1 end
+	end
+	local passes = {}
+	for name, on in d.Passes or {} do if on then table.insert(passes, name) end end
+	local kd = (d.Deaths or 0) > 0 and ("%.2f"):format((d.Kills or 0) / d.Deaths) or tostring(d.Kills or 0)
+	local where = "Offline"
+	if p then where = "In this server" end
+	local rows = {
+		{"Player", ("%s (%d)"):format(t.name, t.userId)},
+		{"Status", where},
+		{"Coins", fmtNum(d.Coins)},
+		{"Level", ("%d  (%s XP)"):format(MatchConfig.LevelFromXP(d.XP or 0), fmtNum(d.XP))},
+		{"Win Streak", fmtNum(d.WinStreak)},
+		{"Kills / Deaths", ("%s / %s  (K/D %s)"):format(fmtNum(d.Kills), fmtNum(d.Deaths), kd)},
+		{"Wins / Losses", ("%s / %s"):format(fmtNum(d.Wins), fmtNum(d.Losses))},
+		{"Matches", fmtNum(d.Matches)},
+		{"This Month", ("%s kills, %s wins"):format(fmtNum(month and d.MonthKills or 0), fmtNum(month and d.MonthWins or 0))},
+		{"Playtime", fmtTime(p and PlayerData.GetPlaytime(p) or d.Playtime)},
+		{"Balloons", ("%d (%d different)"):format(balloons, kinds)},
+		{"Equipped", Skins.Get(d.EquippedSkin).Name},
+		{"Passes (gifted)", #passes > 0 and table.concat(passes, ", ") or "none"},
+		{"Daily Reward", d.Daily and ("day %d"):format((d.Daily.Day or 0)) or "never claimed"},
+	}
+	return rows
+end
+function commands.StatLookup(admin, args)
+	local t, err = resolve(args.Target) if not t then return false, err end
+	local p = t.player and t.player.Parent == Players and t.player or nil
+	local d = p and waitData(p) or PlayerData.GetOfflineData(t.userId)
+	if not d then return false, t.name .. " has no saved data (never played?)" end
+	local rows = statRows(d, t, p)
+	if not p then
+		-- online in another server?
+		local ok, _, _, _, jobId = pcall(function() return TeleportService:GetPlayerPlaceInstanceAsync(t.userId) end)
+		if ok and jobId and jobId ~= "" then rows[2][2] = "Online (another server)" end
+	end
+	return true, "Stats for " .. t.name, rows
+end
+
+------------------------------------------------------------ SHUTDOWN / RELOAD (this server)
+-- Reload: everyone is sent to a temporary server and straight back to a fresh one (GlobalMatchmaking sends
+-- "Reload" arrivals back to the lobby), so they're in the newest version of the game. Shutdown: everyone is kicked.
+local closing -- "shutdown" / "reload" once started: new joiners are turned away
+Players.PlayerAdded:Connect(function(p)
+	if closing then p:Kick(closing == "reload" and "This server is restarting - rejoin in a few seconds" or "This server was shut down") end
+end)
+function commands.ShutdownServer(admin, args)
+	if closing then return false, "Already closing" end
+	closing = "shutdown"
+	local reason = (args.Reason or "") ~= "" and args.Reason or (Config.ShutdownMessage or "This server was shut down by an admin")
+	addLog(admin, ("%s shut down a server (%s)"):format(admin.Name, reason))
+	for _, pl in Players:GetPlayers() do notify(pl, (Config.ShutdownWarning or "This server is shutting down in {s} seconds"):gsub("{s}", tostring(Config.ShutdownDelay or 5))) end
+	task.delay(Config.ShutdownDelay or 5, function()
+		for _, pl in Players:GetPlayers() do pl:Kick(reason) end
+	end)
+	return true, "Shutting down..."
+end
+function commands.ReloadServer(admin)
+	if closing then return false, "Already closing" end
+	if game:GetService("RunService"):IsStudio() then return false, "Reloading doesn't work in Studio (teleports are off)" end
+	if game.PrivateServerId ~= "" and game.PrivateServerOwnerId == 0 then return false, "Match servers can't be reloaded - use it in a lobby" end
+	closing = "reload"
+	addLog(admin, admin.Name .. " reloaded a server")
+	for _, pl in Players:GetPlayers() do notify(pl, (Config.ReloadWarning or "This server is restarting in {s} seconds - you'll be moved to a new one"):gsub("{s}", tostring(Config.ShutdownDelay or 5))) end
+	task.delay(Config.ShutdownDelay or 5, function()
+		local ok, code = pcall(function() return TeleportService:ReserveServer(game.PlaceId) end)
+		local list = Players:GetPlayers()
+		if ok and #list > 0 then
+			local opts = Instance.new("TeleportOptions")
+			opts.ReservedServerAccessCode = code
+			opts:SetTeleportData({Reload = true})
+			pcall(function() TeleportService:TeleportAsync(game.PlaceId, list, opts) end)
+		end
+		-- anyone still here after that (teleport failed): kicked with a rejoin message
+		task.wait(15)
+		for _, pl in Players:GetPlayers() do pl:Kick("This server restarted - please rejoin") end
+	end)
+	return true, "Reloading..."
+end
+
 local last = {}
 Remote.OnServerInvoke = function(p, cmd, args)
 	if not isAdmin(p) then return false, "Not an admin" end
 	if cmd == "Logs" then return true, getLogs() end
+	if cmd == "StatLookup" then
+		-- (returns the rows too, for the stats page)
+		local ok, res, msg, rows = pcall(commands.StatLookup, p, type(args) == "table" and args or {})
+		if not ok then warn("[AdminServer] " .. tostring(res)) return false, "Something went wrong" end
+		return res, msg, rows
+	end
 	local fn = type(cmd) == "string" and commands[cmd]
 	if not fn then return false, "Unknown command" end
 	if last[p] and os.clock() - last[p] < 0.5 then return false, "Slow down" end

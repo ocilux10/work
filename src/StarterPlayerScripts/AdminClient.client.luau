@@ -198,6 +198,65 @@ local function openLogs()
 	local empty = lg:FindFirstChild("Empty") if empty then empty.Visible = #list == 0 end
 end
 
+------------------------------------------------------------ STAT LOOKUP PAGE (a copy of AdminFrame > Logs: When = stat, Line = value)
+local function openStats(title, rows)
+	local page = frame:FindFirstChild("Stats")
+	if not page then
+		local logs = frame:FindFirstChild("Logs")
+		if not logs then return end
+		page = logs:Clone()
+		page.Name = "Stats"
+		page.Parent = frame
+		local back = page:FindFirstChild("Back")
+		if back and back:IsA("GuiButton") then back.Activated:Connect(function() page.Visible = false SFX.Play("Close") end) end
+	end
+	setText(page:FindFirstChild("Title"), title:upper())
+	local empty = page:FindFirstChild("Empty") if empty then empty.Visible = false end
+	local sc = page:FindFirstChild("ScrollingFrame")
+	local tpl = page:FindFirstChild("LogRow")
+	if tpl then tpl.Visible = false end
+	for _, c in sc:GetChildren() do if c:IsA("GuiObject") then c:Destroy() end end
+	for i, r in rows do
+		local row = tpl:Clone()
+		row.Name = "Stat" .. i
+		row.Visible = true
+		row.LayoutOrder = i
+		setText(row:FindFirstChild("When"), tostring(r[1]))
+		setText(row:FindFirstChild("Line"), tostring(r[2]))
+		row.Parent = sc
+	end
+	page.Visible = true
+	SFX.Play("Open")
+end
+
+-- the rows added by script (copies of the Join / Kick rows, so they look the same):
+--   {name, copy of, command text, button text, keep these boxes}
+local EXTRA_ROWS = {
+	{"StatLookup", "Join", "Stat Lookup", "Look Up", {"Target"}},
+	{"ReloadServer", "Join", "Reload Server", "Reload", {}},
+	{"ShutdownServer", "Kick", "Shutdown Server", "Shutdown", {"Reason"}},
+}
+local function addExtraRows(cs)
+	for i, e in EXTRA_ROWS do
+		local name, from, text, btn, keep = e[1], e[2], e[3], e[4], e[5]
+		local src = cs:FindFirstChild(from)
+		if src and not cs:FindFirstChild(name) then
+			local row = src:Clone()
+			row.Name = name
+			row.LayoutOrder = 1000 + i
+			for _, box in {"Target", "Amount", "Reason", "Duration", "Pass"} do
+				local b = row:FindFirstChild(box)
+				if b and not table.find(keep, box) then b:Destroy() end
+			end
+			local r = row:FindFirstChild("Reason")
+			if r and r:IsA("TextBox") then r.Text = "" r.PlaceholderText = "Kick message (optional)" end
+			setText(row:FindFirstChild("CommandText"), text)
+			setText(label(row:FindFirstChild("RunButton")), btn)
+			row.Parent = cs
+		end
+	end
+end
+
 ------------------------------------------------------------ HOOK THE PANEL (again after every respawn)
 local function hook(main)
 	frame = main:WaitForChild("AdminFrame", 10)
@@ -205,6 +264,7 @@ local function hook(main)
 	frame.Visible = false
 	local off = frame:FindFirstChild("TopBar") and frame.TopBar:FindFirstChild("Off")
 	if off and off:IsA("GuiButton") then off.Activated:Connect(function() frame.Visible = false SFX.Play("Close") end) end
+	local oldStats = frame:FindFirstChild("Stats") if oldStats then oldStats:Destroy() end
 	for _, n in {"Logs", "BalloonPicker"} do
 		local p = frame:FindFirstChild(n)
 		if p then
@@ -217,13 +277,22 @@ local function hook(main)
 	if logsBtn and logsBtn:IsA("GuiButton") then logsBtn.Activated:Connect(openLogs) end
 	local cs = frame:FindFirstChild("CommandsSecition", true)
 	if not cs then return end
+	addExtraRows(cs)
 	for _, row in cs:GetChildren() do
 		if row:IsA("GuiObject") then
 			-- the player box starts with YOUR name (until you change it)
 			local tb = row:FindFirstChild("Target")
 			if tb and tb:IsA("TextBox") and tb.Text == "" then tb.Text = player.Name end
 			local run = row:FindFirstChild("RunButton")
-			if run and run:IsA("GuiButton") then
+			if run and run:IsA("GuiButton") and row.Name == "StatLookup" then
+				-- (looking only: no confirm step)
+				run.Activated:Connect(function()
+					SFX.Play("ButtonPress")
+					local ok, res, msg, rows = pcall(function() return Remote:InvokeServer("StatLookup", {Target = field(row, "Target")}) end)
+					if ok and res and type(rows) == "table" then openStats(msg or "Stats", rows)
+					else notice((ok and msg) or "Failed") SFX.Play("Error") end
+				end)
+			elseif run and run:IsA("GuiButton") then
 				local cmd = row.Name
 				hookRun(row, run, function()
 					local args = {Target = field(row, "Target"), Amount = field(row, "Amount"), Reason = field(row, "Reason"),

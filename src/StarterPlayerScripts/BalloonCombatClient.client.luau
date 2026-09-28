@@ -451,6 +451,10 @@ local function trySwing()
 	SFX.Play("Swing")
 end
 
+-- aim training with Settings > Target > Reload Cooldown off (AimTrainingServer sets NoReload)
+local NO_RELOAD_GAP = 0.12
+local function noReloadOn() return player:GetAttribute("NoReload") == true end
+
 local function tryShoot()
 	if not (inArena() or previewSkin) or combatLocked() or player:GetAttribute("ShootLocked") then return end
 	inspectStart = -100
@@ -458,7 +462,8 @@ local function tryShoot()
 	if not char or not balloonReady then return end
 	local now = os.clock()
 	if now - regrowStart < INFLATE_TIME then return end -- still inflating
-	if now - lastShot < Config.ShootCooldown then return end
+	local noReload = noReloadOn()
+	if now - lastShot < (noReload and NO_RELOAD_GAP or Config.ShootCooldown) then return end
 	lastShot = now
 	throwStart = now
 	balloonReady = false
@@ -519,11 +524,12 @@ local function tryShoot()
 	SFX.Play("Shoot")
 
 	local token = lifeToken
-	task.delay(Config.ShootCooldown, function()
+	task.delay(noReload and NO_RELOAD_GAP or Config.ShootCooldown, function()
 		if token ~= lifeToken then return end
 		balloonReady = true
-		regrowStart = os.clock()
-		if inArena() or previewSkin then SFX.Play("BalloonInflate") end
+		-- (no reload: it's back full size straight away, no inflating)
+		regrowStart = noReload and (os.clock() - INFLATE_TIME) or os.clock()
+		if (inArena() or previewSkin) and not noReload then SFX.Play("BalloonInflate") end
 	end)
 end
 
@@ -921,7 +927,7 @@ end
 
 RunService:BindToRenderStep("BalloonViewmodel", Enum.RenderPriority.Camera.Value + 2, function(dt)
 	local now = os.clock()
-	local shotFrac = 1 - (now - lastShot) / (Config.ShootCooldown + INFLATE_TIME)
+	local shotFrac = noReloadOn() and 0 or 1 - (now - lastShot) / (Config.ShootCooldown + INFLATE_TIME)
 	local swingFrac = 1 - (now - lastSwing) / Config.MeleeCooldown
 	setCooldownBar("RMB", shotFrac)
 

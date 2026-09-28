@@ -196,9 +196,12 @@ end
 ------------------------------------------------------------ DELETE (bin button -> "Are you sure?")
 local deleting -- the replay the open prompt is about
 local deletePrompt
+local hiddenBehind -- the menu hidden while the prompt is open (Main > WatchFrame): back when it closes
 local function closeDelete()
 	deleting = nil
 	if deletePrompt then deletePrompt.Visible = false end
+	if hiddenBehind and hiddenBehind.Parent then hiddenBehind.Visible = true end
+	hiddenBehind = nil
 end
 local function doDelete(e)
 	-- gone from the list straight away; the server takes it off your saved list
@@ -220,6 +223,12 @@ askDelete = function(e)
 	if title and title:IsA("TextLabel") then title.Text = deletePrompt:GetAttribute("Text") or "Are you sure you want to delete this replay?" end
 	local img = deletePrompt:FindFirstChild("MapImage", true)
 	if img and img:IsA("ImageLabel") and (e.Image or "") ~= "" then img.Image = e.Image end
+	-- the replays menu steps aside while you answer (comes back on Delete / Cancel)
+	local wf = deletePrompt.Parent:FindFirstChild("WatchFrame")
+	if wf and wf.Visible then
+		hiddenBehind = wf
+		wf.Visible = false
+	end
 	deletePrompt.Visible = true
 	local pop = deletePrompt:FindFirstChild("OpenPop") or Instance.new("UIScale")
 	pop.Name = "OpenPop"

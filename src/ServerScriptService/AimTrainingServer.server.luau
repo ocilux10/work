@@ -565,7 +565,7 @@ local function leave(p)
 	usedSlots[s.slot] = nil
 	clearTargets(s)
 	if s.room then s.room:Destroy() end
-	for _, a in {"AimTraining", "AimSpawn", "AimShots", "AimHits", "AimHeads", "AimKills", "AimChGoal", "AimChKills", "AimChStart", "AimChState", "AimChTime", "AimChNewBest", "AimBest"} do
+	for _, a in {"AimTraining", "AimSpawn", "NoReload", "AimShots", "AimHits", "AimHeads", "AimKills", "AimChGoal", "AimChKills", "AimChStart", "AimChState", "AimChTime", "AimChNewBest", "AimBest"} do
 		p:SetAttribute(a, nil)
 	end
 end
@@ -598,6 +598,7 @@ local function enter(p)
 	buildBox(s)
 	p:SetAttribute("AimTraining", true)
 	p:SetAttribute("AimSpawn", spawnCF)
+	p:SetAttribute("NoReload", s.get("AimReload") == false or nil) -- Settings: Reload Cooldown off (BalloonCombat reads it)
 	publish(s)
 	task.spawn(function()
 		loadBest(p.UserId)
@@ -624,6 +625,7 @@ local function onPrefs(p)
 	local s = sessions[p]
 	if not s then return end
 	s.get = settingsOf(p)
+	p:SetAttribute("NoReload", s.get("AimReload") == false or nil)
 	local newSig, newBox = sig(s, SIGNATURE_KEYS), sig(s, BOX_KEYS)
 	if newBox ~= s.boxSig then
 		s.boxSig = newBox

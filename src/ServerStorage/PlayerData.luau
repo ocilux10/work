@@ -42,6 +42,8 @@ local TEMPLATE = {
 	QuestCycleStart = 0, -- os.time the current 24h quest cycle started (first ever join, then every 24h)
 	Quests = {},         -- {{Id, Progress, Done}, ...}
 	Receipts = {},       -- ids of Robux purchases already given (ServerScriptService > ShopServer)
+	Daily = {Day = 0, Last = -1}, -- DAILY REWARDS: the last day claimed (1 = day 1) + which calendar day (ServerScriptService > DailyRewardsServer)
+	LeaderboardClaimed = {}, -- {["2026-09 MonthKills"] = true}: monthly leaderboard rewards already given (LeaderboardRewardsServer)
 	Settings = {},       -- small UI choices (e.g. LobbiesOpen), saved by ServerScriptService > SettingsServer
 }
 
@@ -247,6 +249,20 @@ function PlayerData.GetOfflineProfile(userId, name, displayName, verified)
 		Device = "PC",
 		Offline = true,
 	}
+end
+
+-- a player who ISN'T in this server: their whole saved data table (read-only copy), or nil. (Admin > Stat Lookup)
+function PlayerData.GetOfflineData(userId)
+	local ok, view = pcall(function() return Store:GetAsync("Player_" .. userId) end)
+	if not ok or not view or type(view.Data) ~= "table" then return nil end
+	return view.Data
+end
+
+-- live playtime (banked + this session) of someone in this server
+function PlayerData.GetPlaytime(player)
+	local d = PlayerData.Get(player)
+	if not d then return 0 end
+	return (d.Playtime or 0) + (sessionStart[player] and (os.clock() - sessionStart[player]) or 0)
 end
 
 function PlayerData.GetLevel(player)

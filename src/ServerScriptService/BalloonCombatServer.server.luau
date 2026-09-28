@@ -363,7 +363,7 @@ SwingRemote.OnServerEvent:Connect(function(player, look)
 	local st = getState(player)
 	local now = os.clock()
 	if now - st.lastSwing < Config.MeleeCooldown * 0.85 then return end
-	if now - st.lastShot < (Config.ShootCooldown + (Config.InflateTime or 0)) * 0.85 then return end
+	if not player:GetAttribute("NoReload") and now - st.lastShot < (Config.ShootCooldown + (Config.InflateTime or 0)) * 0.85 then return end
 	st.lastSwing = now
 	Effect:FireAllClients("Swing", {player = player})
 	PlayerSwung:Fire(player)
@@ -442,6 +442,7 @@ local function rewoundPosition(model, part, t)
 end
 
 ------------------------------------------------------------ SHOOT (hitscan)
+local NO_RELOAD_GAP = 0.12 -- seconds between throws when the reload cooldown is off (aim training setting)
 local function losClear(origin, target, ignore)
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
@@ -462,7 +463,10 @@ ShootRemote.OnServerEvent:Connect(function(player, origin, dir, hitPart, hitPos)
 	if not char then return end
 	local st = getState(player)
 	local now = os.clock()
-	if now - st.lastShot < (Config.ShootCooldown + (Config.InflateTime or 0)) * 0.85 then return end
+	-- (aim training with Reload Cooldown off = NoReload: only a tiny gap between throws)
+	local noReload = player:GetAttribute("NoReload") == true
+	local gap = noReload and NO_RELOAD_GAP or (Config.ShootCooldown + (Config.InflateTime or 0))
+	if now - st.lastShot < gap * 0.85 then return end
 	st.lastShot = now
 	dir = dir.Unit
 
@@ -502,7 +506,7 @@ ShootRemote.OnServerEvent:Connect(function(player, origin, dir, hitPart, hitPos)
 	Effect:FireAllClients("Shot", {shooter = player, from = from, to = endPos, pop = hitSomething})
 	PlayerShot:Fire(player, from, endPos, hitSomething)
 	setHeldVisible(char, false)
-	task.delay(Config.ShootCooldown, function()
+	task.delay(noReload and NO_RELOAD_GAP or Config.ShootCooldown, function()
 		if player.Character == char then setHeldVisible(char, true) end
 	end)
 end)

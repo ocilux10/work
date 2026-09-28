@@ -10,4 +10,9 @@ C.LogKeep = 200                       -- how many actions the logs remember (all
 C.ChatPrefix = "[ADMIN]"              -- in front of the chat messages
 C.ChatColor = "#FF4B4B"
 C.MaxCoins = 100000000                -- biggest amount one command can give / set
+-- SHUTDOWN / RELOAD SERVER ({s} = seconds)
+C.ShutdownDelay = 5                   -- seconds of warning before the server shuts down / reloads
+C.ShutdownWarning = "This server is shutting down in {s} seconds"
+C.ShutdownMessage = "This server was shut down by an admin" -- kick message (the Reason box replaces it)
+C.ReloadWarning = "This server is restarting in {s} seconds - you'll be moved to a new one"
 return C

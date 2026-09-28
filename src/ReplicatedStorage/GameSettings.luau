@@ -103,6 +103,7 @@ GS.Defs = {
 	{Tab = "Other", Section = "Privacy", Key = "DuelRequests", Type = "Cycle", Default = "Everyone", Options = {"Everyone", "Friends", "No one"}, Label = "Duel Requests", Sub = "Who can ask to 1v1"},
 	{Tab = "Other", Section = "Privacy", Key = "TradeRequests", Type = "Cycle", Default = "Everyone", Options = {"Everyone", "Friends", "No one"}, Label = "Trade Requests", Sub = "Who can ask to trade"},
 	{Tab = "Other", Section = "Privacy", Key = "AcceptGifts", Type = "Toggle", Default = true, Label = "Accept Gifts", Sub = "Let other players gift you coins"},
+	{Tab = "Other", Section = "Privacy", Key = "AllowJoins", Type = "Toggle", Default = true, Label = "Allow Joins", Sub = "Let players who search your name join your server"},
 	-- AIM TRAINING (its own menu: StarterGui > AimTrainingUI > AimTrainingFrame, tabs Target / Movement / Box / Challenge)
 	-- Text = a text box, Button = a button row (Action is sent to the menu's "Action" event)
 	{Tab = "Target", Section = "Target", Key = "AimType", Type = "Cycle", Default = "Bot", Options = {"Bot", "Disc", "Orbs"}, Label = "Target Type", Sub = "Bots, a bullseye disc or floating orbs"},
@@ -110,6 +111,7 @@ GS.Defs = {
 	{Tab = "Target", Section = "Target", Key = "AimCount", Type = "Slider", Default = 1, Min = 1, Max = 6, Step = 1, Label = "How Many", Sub = "Targets at the same time"},
 	{Tab = "Target", Section = "Target", Key = "AimDistance", Type = "Slider", Default = 45, Min = 10, Max = 150, Step = 1, Label = "Distance", Sub = "How far the box is from you (studs)"},
 	{Tab = "Target", Section = "Target", Key = "AimOrbSize", Type = "Slider", Default = 2, Min = 0.5, Max = 5, Step = 0.5, Label = "Orb Size", Sub = "Size of the floating orbs"},
+	{Tab = "Target", Section = "You", Key = "AimReload", Type = "Toggle", Default = true, Label = "Reload Cooldown", Sub = "Off = your balloon comes back straight away"},
 	{Tab = "Target", Section = "Bot", Key = "AimAvatar", Type = "Text", Default = "", Label = "Bot Avatar", Sub = "Type a username + Enter (empty = Noob)"},
 	{Tab = "Target", Section = "Bot", Key = "AimShootBack", Type = "Toggle", Default = false, Label = "Bots Throw Back", Sub = "Bots throw balloons at you (dodge practice)"},
 	{Tab = "Target", Section = "Bot", Key = "AimShootRate", Type = "Slider", Default = 2, Min = 0.5, Max = 6, Step = 0.5, Label = "Throw Every", Sub = "Seconds between their throws"},

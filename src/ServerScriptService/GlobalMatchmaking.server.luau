@@ -429,6 +429,12 @@ local function onPlayerAdded(p)
 	local join = p:GetJoinData()
 	local td = join and join.TeleportData
 	if IS_MATCH_SERVER then
+		-- an admin reloaded their lobby (AdminServer > ReloadServer): this is just a stop on the way to a fresh lobby
+		if type(td) == "table" and td.Reload == true then
+			status(p, "Teleporting", {Mode = "Lobby", ToLobby = true})
+			task.delay(6, sendToLobby, p) -- (the old server has closed by then, so they land in a new one)
+			return
+		end
 		if type(td) == "table" and type(td.Match) == "table" and not expected then
 			expected = td.Match
 			-- not everyone made it in time -> cancel, everyone who's here goes back to searching

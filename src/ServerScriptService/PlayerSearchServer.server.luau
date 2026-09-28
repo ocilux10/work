@@ -17,16 +17,23 @@ local NameBadge = require(game:GetService("ReplicatedStorage"):WaitForChild("Nam
 local Presence = MemoryStoreService:GetHashMap((RunService:IsStudio() and "Studio_" or "") .. "Presence_v1")
 local IS_MATCH_SERVER = game.PrivateServerId ~= "" and game.PrivateServerOwnerId == 0
 local PRESENCE_LIFE = 150
+-- (Joins = false: they turned Settings > Other > Allow Joins off)
 local function announce(p)
-	pcall(function() Presence:SetAsync(tostring(p.UserId), {Job = game.JobId, Match = IS_MATCH_SERVER}, PRESENCE_LIFE) end)
+	pcall(function()
+		Presence:SetAsync(tostring(p.UserId), {Job = game.JobId, Match = IS_MATCH_SERVER, Joins = p:GetAttribute("Pref_AllowJoins") ~= false}, PRESENCE_LIFE)
+	end)
 end
 local function presenceOf(userId)
 	local ok, v = pcall(function() return Presence:GetAsync(tostring(userId)) end)
 	if ok and type(v) == "table" then return v end
 	return nil
 end
-Players.PlayerAdded:Connect(announce)
-for _, p in Players:GetPlayers() do task.spawn(announce, p) end
+local function onPlayer(p)
+	announce(p)
+	p:GetAttributeChangedSignal("Pref_AllowJoins"):Connect(function() announce(p) end)
+end
+Players.PlayerAdded:Connect(onPlayer)
+for _, p in Players:GetPlayers() do task.spawn(onPlayer, p) end
 Players.PlayerRemoving:Connect(function(p)
 	-- only clear it if they're still listed as HERE (teleporting players get re-listed by the next server)
 	local v = presenceOf(p.UserId)
@@ -81,7 +88,7 @@ Remote.OnServerInvoke = function(p, action, arg)
 		if pres and pres.Job ~= game.JobId then
 			data.Offline = false
 			data.OnlineElsewhere = true
-			data.CanJoin = not pres.Match -- (a match server is private: no joining)
+			data.CanJoin = not pres.Match and pres.Joins ~= false -- (a match server is private: no joining; or they turned joins off)
 			data.InMatch = pres.Match == true
 		end
 		return data
@@ -95,6 +102,7 @@ Remote.OnServerInvoke = function(p, action, arg)
 		if not pres then return nil, "They aren't online any more" end
 		if pres.Job == game.JobId then return nil, "They're already in this server" end
 		if pres.Match then return nil, "They're in a match right now" end
+		if pres.Joins == false then return nil, "They've turned joins off" end
 		if RunService:IsStudio() then return nil, "Joining other servers doesn't work in Studio" end
 		local options = Instance.new("TeleportOptions")
 		options.ServerInstanceId = pres.Job
