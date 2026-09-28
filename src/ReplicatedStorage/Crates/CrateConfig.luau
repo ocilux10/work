@@ -73,6 +73,19 @@ M.ShowLeavingTimer = true             -- false = no "LEAVES IN" timer on the car
 M.NotSetUpText = "SOON"               -- Robux chest without a ProductId
 M.NotEnoughCoinsText = "Not enough coins!"
 M.ChanceDecimals = 2                  -- how many decimals the % shows at most (0.25%, 12%, 3.5%)
+M.CoinPriceText = "{price} Coins"     -- price on a coin chest's buttons
+M.RobuxPriceText = "\u{E002} {price}" -- price on a Robux chest's buttons (\u{E002} = the Robux icon)
+M.OpenText = "Open  {price}"          -- the Open button on the contents page
+M.OddsText = "1 balloon per open"     -- under the chest on the contents page
+
+-- THE SHOP CARD
+M.Card = {
+	ModelSpin = 20,       -- degrees per second the chest turns on its card (0 = still)
+	HoverSpin = 90,       -- ...and while you hover it
+	HoverOutline = true,  -- the white outline on hover (same as the coin packs)
+	ClickOpensContents = true, -- clicking the card (not the Buy button) shows what's inside
+	BuyOpensContents = false,  -- true = the Buy button also goes to the contents page first instead of opening straight away
+}
 
 -- THE SPIN (StarterGui > CrateOpening)
 M.Spin = {
@@ -83,6 +96,11 @@ M.Spin = {
 	WinSound = "QuestComplete",   -- when it lands
 	RevealTime = 1.2,   -- seconds the winner stays highlighted before the inspect screen
 	InspectAfter = true, -- true = go straight into the inspect screen with what you got (Stop = back to the shop)
+	CellGap = 8,        -- pixels between the balloons on the strip
+	WinnerPop = 1.12,   -- how much the winner grows when it lands (1 = not at all)
+	TitleText = "Opening {name}...",
+	WonText = "You got {balloon}!",
+	GiftedText = "{from} gifted you a {name}!",
 }
 
 ------------------------------------------------------------ (no need to edit below)
