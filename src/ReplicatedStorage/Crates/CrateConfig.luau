@@ -1,13 +1,17 @@
 -- CRATES / CHESTS - everything about the chests in the shop (Main > ShopFrame > CRATES). Edit freely.
---   3D models: ReplicatedStorage > Crates > Models (Basic / Premium / Exclusive - recolour or make your own, one Model each)
---   Balloons (names, rarities, colours): ReplicatedStorage > BalloonSkins > SkinConfig
+--   3D model: built by ReplicatedStorage > Crates > ChestBuilder from each chest's Look (colours below). Want your own
+--             model instead? Put it in Crates > Models and set Model = "<its name>" (and remove Look).
+--   Balloons (names, rarities, looks): ReplicatedStorage > BalloonSkins > SkinConfig
 --   Look of the shop card:  Main > ShopFrame > ScrollingFrame > CratesSection1 > Crate (the first one is the template)
 --   Look of the contents page: Main > ShopFrame > CrateView       Look of the spin: StarterGui > CrateOpening
 --
 -- ONE CHEST:
 --   Id          unique name, never change it once the game is live
 --   Name        shown on the card / contents page
---   Model       which model in Crates > Models to show
+--   Look        the chest's colours: Body / Lid / Trim (base, ridge, corners, lock frame) / Seam / Lock (the plate + its
+--               light), Material / LockMaterial ("SmoothPlastic", "Neon", "Metal", "Foil"...), Sparkle = true (sparkles
+--               around it, SparkleColor)
+--   Model       (instead of Look) a model in Crates > Models
 --   Tag         the little badge on the card ("CHEST", "NEW", "LIMITED"...). "" = no badge
 --   Color       colour of the badge + the line under the card
 --   Order       position in the shop (1 = first)
@@ -15,53 +19,123 @@
 --   Start / End WHEN it's in the shop, UTC time "YYYY-MM-DD HH:MM" (nil = always). After End it leaves the shop by
 --               itself (and can't be bought any more). Before Start it's hidden (or "COMING SOON", see ShowBeforeStart).
 --   ShowBeforeStart  true = shows before Start with a "COMING IN ..." timer (can't be opened yet)
---   Price       {Coins = 500}                         -> paid with coins
---               {Robux = 249, ProductId = 123456789}  -> paid with Robux (a Developer Product, like the coin packs;
---                                                        ProductId 0 = not made yet: the button says SOON)
+--   Price       Coins = 500                   -> can be opened with coins (leave it out = Robux only)
+--               Robux = 49, ProductId = 123   -> can ALSO be bought with Robux: make a Developer Product for it (Creator
+--                                                Hub > your game > Monetization > Developer Products) and put its id here.
+--                                                ProductId 0 = not made yet (the Robux button says SOON).
+--               Robux chests can be gifted too.
 --   Contents    what can come out: {Id = balloon id, Chance = number}. Chances are shares of the total, so they
 --               don't HAVE to add up to 100 (the shop shows the real %). Keep them adding to 100 to keep it simple.
 local M = {}
+local C = Color3.fromRGB
 
 M.Crates = {
 	{
-		Id = "Basic", Name = "Basic Chest", Model = "Basic", Tag = "CHEST", Color = Color3.fromRGB(190, 200, 210), Order = 1,
+		Id = "Basic", Name = "Basic Chest", Tag = "CHEST", Color = C(190, 200, 210), Order = 1,
+		Look = {Body = C(205, 212, 222), Lid = C(220, 226, 235), Trim = C(120, 128, 140), Lock = C(70, 170, 255), LockMaterial = "Neon"},
 		ShowInShop = true, Start = nil, End = nil,
-		Price = {Coins = 500},
+		Price = {Coins = 500, Robux = 49, ProductId = 0},
 		Contents = {
-			{Id = "Honeycomb",  Chance = 55},
-			{Id = "CandySwirl", Chance = 20},
-			{Id = "Heartbreak", Chance = 20},
-			{Id = "Frostbite",  Chance = 3},
-			{Id = "Toxic",      Chance = 2},
+			-- common 85
+			{Id = "Honeycomb",  Chance = 15},
+			{Id = "Bubblegum",  Chance = 12},
+			{Id = "Mint",       Chance = 12},
+			{Id = "Sky",        Chance = 12},
+			{Id = "Lemon",      Chance = 10},
+			{Id = "Coal",       Chance = 8},
+			{Id = "Beehive",    Chance = 8},
+			{Id = "Peppermint", Chance = 8},
+			-- rare 12
+			{Id = "CandySwirl", Chance = 3},
+			{Id = "Heartbreak", Chance = 3},
+			{Id = "Chrome",     Chance = 2},
+			{Id = "NeonLime",   Chance = 2},
+			{Id = "Marble",     Chance = 2},
+			-- epic 3
+			{Id = "Frostbite",  Chance = 1.5},
+			{Id = "Toxic",      Chance = 1},
+			{Id = "GoldRush",   Chance = 0.5},
 		},
 	},
 	{
-		Id = "Premium", Name = "Premium Chest", Model = "Premium", Tag = "PREMIUM", Color = Color3.fromRGB(60, 140, 255), Order = 2,
+		Id = "Premium", Name = "Premium Chest", Tag = "PREMIUM", Color = C(60, 140, 255), Order = 2,
+		Look = {Body = C(40, 105, 225), Lid = C(55, 125, 240), Trim = C(25, 45, 100), Lock = C(255, 200, 60), LockMaterial = "Neon"},
 		ShowInShop = true, Start = nil, End = nil,
-		Price = {Coins = 1500},
+		Price = {Coins = 1500, Robux = 149, ProductId = 0},
 		Contents = {
-			{Id = "CandySwirl", Chance = 25},
-			{Id = "Heartbreak", Chance = 25},
-			{Id = "Frostbite",  Chance = 15},
-			{Id = "Toxic",      Chance = 15},
-			{Id = "Glitch",     Chance = 12},
-			{Id = "Inferno",    Chance = 4},
-			{Id = "Thunder",    Chance = 3},
-			{Id = "ShadowVoid", Chance = 1},
+			-- rare 50
+			{Id = "CandySwirl",   Chance = 7},
+			{Id = "Heartbreak",   Chance = 7},
+			{Id = "Chrome",       Chance = 6},
+			{Id = "GlassBalloon", Chance = 6},
+			{Id = "NeonLime",     Chance = 6},
+			{Id = "Marble",       Chance = 6},
+			{Id = "CottonCandy",  Chance = 4},
+			{Id = "Lovestruck",   Chance = 4},
+			{Id = "Glacier",      Chance = 2},
+			{Id = "StormCloud",   Chance = 2},
+			-- epic 38
+			{Id = "Frostbite",     Chance = 6},
+			{Id = "Toxic",         Chance = 6},
+			{Id = "Glitch",        Chance = 6},
+			{Id = "GoldRush",      Chance = 5},
+			{Id = "Hologram",      Chance = 5},
+			{Id = "RoyalJelly",    Chance = 4},
+			{Id = "BrokenHearted", Chance = 3},
+			{Id = "AcidRain",      Chance = 1.5},
+			{Id = "Corrupted",     Chance = 1.5},
+			-- legendary 11
+			{Id = "Inferno",     Chance = 2},
+			{Id = "Thunder",     Chance = 2},
+			{Id = "ShadowVoid",  Chance = 1.5},
+			{Id = "Blizzard",    Chance = 1.5},
+			{Id = "Radioactive", Chance = 1},
+			{Id = "Error404",    Chance = 1},
+			{Id = "BlueFlame",   Chance = 1},
+			{Id = "Voltage",     Chance = 0.5},
+			{Id = "Eclipse",     Chance = 0.5},
+			-- mythic 1
+			{Id = "Cosmic",  Chance = 0.3},
+			{Id = "Royal",   Chance = 0.3},
+			{Id = "Diamond", Chance = 0.2},
+			{Id = "Galaxy",  Chance = 0.2},
 		},
 	},
 	{
-		Id = "Exclusive", Name = "Exclusive Chest", Model = "Exclusive", Tag = "LIMITED", Color = Color3.fromRGB(255, 180, 40), Order = 3,
+		Id = "Exclusive", Name = "Exclusive Chest", Tag = "LIMITED", Color = C(255, 180, 40), Order = 3,
+		Look = {Body = C(28, 28, 34), Lid = C(38, 38, 46), Trim = C(215, 165, 45), Lock = C(255, 45, 45), LockMaterial = "Neon",
+			Sparkle = true, SparkleColor = C(255, 200, 80)},
 		ShowInShop = true, Start = nil, End = "2026-10-31 23:59", -- leaves the shop at the end of October
-		Price = {Coins = 5000}, -- Robux instead:  Price = {Robux = 249, ProductId = 0},
+		Price = {Coins = 5000, Robux = 399, ProductId = 0},
 		Contents = {
-			{Id = "Glitch",     Chance = 30},
-			{Id = "Toxic",      Chance = 25},
-			{Id = "Inferno",    Chance = 15},
-			{Id = "Thunder",    Chance = 13},
-			{Id = "ShadowVoid", Chance = 12},
-			{Id = "Cosmic",     Chance = 3},
-			{Id = "Royal",      Chance = 2},
+			-- epic 45
+			{Id = "Glitch",        Chance = 8},
+			{Id = "Magma",         Chance = 8},
+			{Id = "AcidRain",      Chance = 8},
+			{Id = "Toxic",         Chance = 7},
+			{Id = "Corrupted",     Chance = 7},
+			{Id = "BrokenHearted", Chance = 7},
+			-- legendary 40
+			{Id = "Inferno",    Chance = 5},
+			{Id = "Thunder",    Chance = 5},
+			{Id = "ShadowVoid", Chance = 5},
+			{Id = "BlueFlame",  Chance = 5},
+			{Id = "Voltage",    Chance = 5},
+			{Id = "Eclipse",    Chance = 5},
+			{Id = "Nebula",     Chance = 5},
+			{Id = "Emperor",    Chance = 5},
+			-- mythic 12
+			{Id = "Cosmic",   Chance = 2.5},
+			{Id = "Royal",    Chance = 2.5},
+			{Id = "Hellfire", Chance = 2},
+			{Id = "Plasma",   Chance = 2},
+			{Id = "Abyss",    Chance = 1.5},
+			{Id = "Galaxy",   Chance = 1},
+			{Id = "Diamond",  Chance = 0.5},
+			-- exclusive 3
+			{Id = "RainbowPrism", Chance = 1.2},
+			{Id = "Celestial",    Chance = 1},
+			{Id = "VoidKing",     Chance = 0.8},
 		},
 	},
 }
@@ -85,6 +159,7 @@ M.Card = {
 	HoverOutline = true,  -- the white outline on hover (same as the coin packs)
 	ClickOpensContents = true, -- clicking the card (not the Buy button) shows what's inside
 	BuyOpensContents = false,  -- true = the Buy button also goes to the contents page first instead of opening straight away
+	ShowRobuxButton = true,    -- chests with a coin AND a Robux price: a second (Robux) button above Buy on the card
 }
 
 -- THE SPIN (StarterGui > CrateOpening)
@@ -165,6 +240,22 @@ function M.TimeText(seconds)
 	if m > 0 then return ("%dm %ds"):format(m, s) end
 	return s .. "s"
 end
+
+-- a fresh 3D model of a chest (built from its Look, or its Model from Crates > Models), or nil
+function M.ModelFor(crate)
+	if not crate then return nil end
+	local folder = game:GetService("ReplicatedStorage"):WaitForChild("Crates")
+	if crate.Model then
+		local src = folder:WaitForChild("Models"):FindFirstChild(crate.Model)
+		if src then return src:Clone() end
+	end
+	return require(folder:WaitForChild("ChestBuilder")).Build(crate.Look)
+end
+
+-- which ways a chest can be bought
+function M.HasCoins(crate) return crate and crate.Price and tonumber(crate.Price.Coins) ~= nil end
+function M.HasRobux(crate) return crate and crate.Price and (crate.Price.Robux ~= nil or crate.Price.ProductId ~= nil) end
+function M.RobuxReady(crate) return M.HasRobux(crate) and (crate.Price.ProductId or 0) ~= 0 end
 
 function M.ByProduct(productId)
 	for _, c in M.Crates do

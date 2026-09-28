@@ -19,6 +19,32 @@ local function packFor(productId)
 		if pack.ProductId ~= 0 and pack.ProductId == productId then return pack, i end
 	end
 end
+-- EXCLUSIVES (Robux balloons) and pass GIFTS (a dev product that gives a game pass) - ShopConfig
+local function exclusiveFor(productId)
+	for i, e in ShopConfig.Exclusives or {} do
+		if (e.ProductId or 0) ~= 0 and e.ProductId == productId then return e, i end
+	end
+end
+local function passGiftFor(productId)
+	for _, ps in ShopConfig.Passes or {} do
+		if (ps.GiftProductId or 0) ~= 0 and ps.GiftProductId == productId then return ps end
+	end
+end
+local function givePass(p, ps)
+	local d = PlayerData.Get(p)
+	if not d then return false end
+	d.Passes = d.Passes or {}
+	d.Passes[ps.Name] = true
+	p:SetAttribute("Pass_" .. ps.Name, true)
+	return true
+end
+-- bought on Roblox while in the game: owned straight away
+MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(p, passId, bought)
+	if not bought then return end
+	for _, ps in ShopConfig.Passes or {} do
+		if (ps.Id or 0) ~= 0 and ps.Id == passId then p:SetAttribute("Pass_" .. ps.Name, true) end
+	end
+end)
 local function fmt(n) return tostring(n):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "") end
 
 local pendingGift = {} -- [buyer] = {target = player, productId, expires}
@@ -34,6 +60,23 @@ ShopRemote.OnServerInvoke = function(p, action, data)
 		if crate then
 			if CrateConfig.State(crate) ~= "open" or not crate.Price or (crate.Price.ProductId or 0) == 0 then return false, "That chest isn't available" end
 			pack = {ProductId = crate.Price.ProductId}
+		elseif type(data) == "table" and type(data.Crate) == "string" then
+			-- (the same gift list is used for "Exclusive:<n>" balloons and "Pass:<name>" passes)
+			local n = tonumber(data.Crate:match("^Exclusive:(%d+)$") or "")
+			local passName = data.Crate:match("^Pass:(.+)$")
+			if n then
+				local e = (ShopConfig.Exclusives or {})[n]
+				if not e or not ShopConfig.ExclusiveActive(e) or (e.ProductId or 0) == 0 then return false, "That balloon isn't available" end
+				pack = {ProductId = e.ProductId}
+			elseif passName then
+				for _, ps in ShopConfig.Passes or {} do
+					if ps.Name == passName and (ps.GiftProductId or 0) ~= 0 then pack = {ProductId = ps.GiftProductId} end
+				end
+				if not pack then return false, "That pass can't be gifted" end
+				if typeof(target) == "Instance" and target:IsA("Player") and target:GetAttribute("Pass_" .. passName) then
+					return false, target.DisplayName .. " already has " .. passName
+				end
+			end
 		end
 		if typeof(target) ~= "Instance" or not target:IsA("Player") or target.Parent ~= Players or target == p then return false, "Pick someone else" end
 		if not pack or pack.ProductId == 0 then return false, "That pack isn't available yet" end
@@ -57,7 +100,9 @@ MarketplaceService.ProcessReceipt = function(info)
 
 	local pack = packFor(info.ProductId)
 	local crate = not pack and CrateConfig.ByProduct(info.ProductId)
-	if not pack and not crate then
+	local exclusive = not pack and not crate and exclusiveFor(info.ProductId)
+	local passGift = not pack and not crate and not exclusive and passGiftFor(info.ProductId)
+	if not pack and not crate and not exclusive and not passGift then
 		warn("[Shop] unknown product " .. tostring(info.ProductId) .. " - add it to ReplicatedStorage > ShopConfig (or Crates > CrateConfig)")
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
@@ -70,6 +115,29 @@ MarketplaceService.ProcessReceipt = function(info)
 		receiver = gift.target
 	end
 	pendingGift[buyer] = nil
+
+	if exclusive or passGift then
+		-- an Exclusive balloon / a gifted game pass
+		local what
+		if exclusive then
+			local Skins = require(RS:WaitForChild("BalloonSkins"):WaitForChild("SkinConfig"))
+			local grant = game:GetService("ServerScriptService"):WaitForChild("SkinServer"):WaitForChild("Grant")
+			if not grant:Invoke(receiver, exclusive.Balloon, 1) then return Enum.ProductPurchaseDecision.NotProcessedYet end
+			what = Skins.Get(exclusive.Balloon).Name
+		else
+			if not givePass(receiver, passGift) then return Enum.ProductPurchaseDecision.NotProcessedYet end
+			what = "the " .. passGift.Name .. " pass"
+		end
+		table.insert(data.Receipts, info.PurchaseId)
+		while #data.Receipts > 50 do table.remove(data.Receipts, 1) end
+		if receiver == buyer then
+			notice(buyer, ("You got %s! Thanks for your support"):format(what))
+		else
+			notice(buyer, ("You gifted %s to %s!"):format(what, receiver.DisplayName))
+			notice(receiver, ("%s gifted you %s!"):format(buyer.DisplayName, what))
+		end
+		return Enum.ProductPurchaseDecision.PurchaseGranted
+	end
 
 	if crate then
 		-- a Robux chest: roll + give the balloon (the receiver's screen plays the spin)

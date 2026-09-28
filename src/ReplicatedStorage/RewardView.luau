@@ -30,17 +30,15 @@ function M.Show(icon, reward, coinImage)
 		if coinImage and coinImage ~= "" and icon:IsA("ImageLabel") then icon.Image = coinImage end
 		return
 	end
-	local src
+	local m
 	if main.Kind == "Crate" then
 		local cfg = require(RS:WaitForChild("Crates"):WaitForChild("CrateConfig"))
-		local c = cfg.ById[main.Id]
-		src = RS.Crates:WaitForChild("Models"):FindFirstChild(c and c.Model or main.Id)
+		m = cfg.ModelFor(cfg.ById[main.Id])
 	else
 		local Skins = require(RS:WaitForChild("BalloonSkins"):WaitForChild("SkinConfig"))
-		src = Skins.Model(main.Id)
+		m = Skins.Model(main.Id)
 	end
-	if not src then return end
-	local m = main.Kind == "Crate" and src:Clone() or src
+	if not m then return end
 	if m:IsA("BasePart") then local mdl = Instance.new("Model") m.CFrame = CFrame.new() m.Parent = mdl m = mdl end
 	local vp = Instance.new("ViewportFrame")
 	vp.Name = icon.Name .. "_3D"

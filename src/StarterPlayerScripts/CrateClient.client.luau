@@ -25,14 +25,16 @@ local function setText(o, t) if o and (o:IsA("TextLabel") or o:IsA("TextButton")
 local function btnText(b, t) local l = b and b:FindFirstChild("Text") if l then setText(l, t) elseif b then setText(b, t) end end
 local function fill(s, vars) return (s:gsub("{(%w+)}", function(k) return vars[k] ~= nil and tostring(vars[k]) or "{" .. k .. "}" end)) end
 
-local function priceText(crate)
-	local p = crate.Price or {}
-	if p.Coins then return fill(Config.CoinPriceText or "{price} Coins", {price = fmt(p.Coins)}) end
-	if (p.ProductId or 0) == 0 then return Config.NotSetUpText or "SOON" end
-	return fill(Config.RobuxPriceText or "\u{E002} {price}", {price = fmt(p.Robux or 0)})
+-- a chest can have a coin price, a Robux price, or both (CrateConfig > Price)
+local function coinText(crate) return fill(Config.CoinPriceText or "{price} Coins", {price = fmt(crate.Price.Coins)}) end
+local function robuxText(crate)
+	if not Config.RobuxReady(crate) then return Config.NotSetUpText or "SOON" end
+	return fill(Config.RobuxPriceText or "\u{E002} {price}", {price = fmt(crate.Price.Robux or 0)})
 end
-local function isRobux(crate) return crate.Price and crate.Price.Coins == nil end
-local function canGift(crate) return isRobux(crate) and (crate.Price.ProductId or 0) ~= 0 end
+-- the main price (coins when it has one)
+local function priceText(crate) return Config.HasCoins(crate) and coinText(crate) or robuxText(crate) end
+local function isRobux(crate) return not Config.HasCoins(crate) end -- (Robux only)
+local function canGift(crate) return Config.RobuxReady(crate) end
 local function now() return workspace:GetServerTimeNow() end
 -- "LEAVES IN 2d 5h" / "COMING IN 3h 12m" / nil
 local function timerText(crate)
@@ -51,9 +53,8 @@ end
 local function clearVp(vp) for _, c in vp:GetChildren() do if not c:IsA("UIComponent") then c:Destroy() end end end
 local function showChest(vp, crate)
 	clearVp(vp)
-	local src = folder:WaitForChild("Models"):FindFirstChild(crate.Model or crate.Id)
-	if not src then return nil end
-	local m = src:Clone()
+	local m = Config.ModelFor(crate)
+	if not m then return nil end
 	if m:IsA("Model") and not m.PrimaryPart then m.PrimaryPart = m:FindFirstChildWhichIsA("BasePart", true) end
 	m:PivotTo(CFrame.new())
 	m.Parent = vp
@@ -116,6 +117,20 @@ local function hoverRing(card, area)
 	area.MouseButton1Up:Connect(function() to(hovering and 10 or 0, hovering and 0.15 or 1, 0.2) end)
 end
 
+-- a copy of a buy button, sitting just above it, green -> Robux style (CrateConfig: chests with coins AND Robux)
+local function robuxButton(src, name)
+	local b = src.Parent:FindFirstChild(name)
+	if b then return b end
+	b = src:Clone()
+	b.Name = name
+	local h = src.Size.Y
+	b.Position = src.Position - UDim2.new(0, 0, h.Scale * 1.15, h.Offset * 1.15 + (h.Offset == 0 and 0 or 4))
+	b.ZIndex = src.ZIndex
+	b:SetAttribute("ClickSound", "") -- (the "Purchase" ring plays instead)
+	b.Parent = src.Parent
+	return b
+end
+
 ------------------------------------------------------------ STATE
 local main, shop, scroll, section, cardTpl, view, itemTpl
 local cards = {}        -- crateId -> {card, model, center, hover}
@@ -138,11 +153,13 @@ end
 ------------------------------------------------------------ THE SPIN (StarterGui > CrateOpening)
 local playSpin -- forward
 
-local function startOpen(crate)
+-- how = "Coins" / "Robux" (nil = coins if it has a coin price)
+local function startOpen(crate, how)
 	if spinning then return end
 	if Config.State(crate) ~= "open" then SFX.Play("Error") notice("This chest isn't in the shop") return end
-	if isRobux(crate) then
-		if not canGift(crate) then SFX.Play("Error") notice("This chest isn't available yet") return end
+	if how == nil then how = Config.HasCoins(crate) and "Coins" or "Robux" end
+	if how == "Robux" then
+		if not Config.RobuxReady(crate) then SFX.Play("Error") notice("This chest isn't available yet") return end
 		Purchase.Product(crate.Price.ProductId) -- CrateServer fires Opened when it's bought
 		return
 	end
@@ -328,6 +345,11 @@ local function paintView()
 	end
 	local gift = view:FindFirstChild("Gift")
 	if gift then gift.Visible = canGift(crate) and state == "open" end
+	local orb = view:FindFirstChild("OpenRobux")
+	if orb then
+		orb.Visible = Config.HasCoins(crate) and Config.HasRobux(crate) and state == "open"
+		btnText(orb, fill(Config.OpenText or "Open  {price}", {price = robuxText(crate)}))
+	end
 end
 
 local function openView(crate)
@@ -368,6 +390,8 @@ local function paintCard(entry, crate)
 	local bar = card:FindFirstChild("Bar") if bar and crate.Color then bar.BackgroundColor3 = crate.Color end
 	local state = Config.State(crate)
 	btnText(card:FindFirstChild("Buy"), state == "soon" and "SOON" or priceText(crate))
+	local rb = card:FindFirstChild("BuyRobux")
+	if rb then rb.Visible = state == "open" btnText(rb, robuxText(crate)) end
 	local gift = card:FindFirstChild("Gift") if gift then gift.Visible = canGift(crate) and state == "open" end
 	local t = timerText(crate)
 	local tl = card:FindFirstChild("Timer")
@@ -446,6 +470,11 @@ local function buildCards()
 			buy.Activated:Connect(function()
 				if Config.Card.BuyOpensContents then openView(crate) else startOpen(crate) end
 			end)
+			-- coins AND Robux: a second button for Robux
+			if Config.HasCoins(crate) and Config.HasRobux(crate) and Config.Card.ShowRobuxButton ~= false then
+				local rb = robuxButton(buy, "BuyRobux")
+				rb.Activated:Connect(function() startOpen(crate, "Robux") end)
+			end
 		end
 		local gift = card:FindFirstChild("Gift")
 		if gift and gift:IsA("GuiButton") then
@@ -529,6 +558,9 @@ local function hook(m)
 			open.Activated:Connect(function()
 				if viewing then startOpen(viewing) end
 			end)
+			local orb = robuxButton(open, "OpenRobux")
+			orb.Visible = false
+			orb.Activated:Connect(function() if viewing then startOpen(viewing, "Robux") end end)
 		end
 		local gift = view:FindFirstChild("Gift")
 		if gift and gift:IsA("GuiButton") then

@@ -21,7 +21,7 @@ local SFX = require(RS:WaitForChild("SFX"))
 local ClientActions = RS:WaitForChild("BalloonCombat"):WaitForChild("ClientActions")
 
 local SORTS = {"Rarity", "Name", "Newest", "Amount"}
-local FILTERS = {"All", "Common", "Rare", "Epic", "Legendary", "Mythic"}
+local FILTERS = {"All", table.unpack(Skins.RarityOrder or {"Common", "Rare", "Epic", "Legendary", "Mythic"})} -- (SkinConfig.RarityOrder)
 local sortMode, filterMode, searchText = "Rarity", "All", ""
 local massMode, selected = false, {}
 local openId -- the card whose ActionMenu is open
@@ -361,6 +361,22 @@ local function startInspect(id, from)
 		setText(card:FindFirstChild("SkinType"), s.Rarity == "Default" and s.Type or (r.Text .. " " .. s.Type))
 		local bar = card:FindFirstChild("Bar") if bar then bar.BackgroundColor3 = r.Color end
 		local glow = card:FindFirstChild("RarityGlow") if glow then glow.BackgroundColor3 = r.Color end
+		-- the description (SkinConfig Desc) under the name card: BalloonInspect > Desc (made from SkinType if missing)
+		local desc = inspectGui:FindFirstChild("Desc")
+		local typeLbl = card:FindFirstChild("SkinType")
+		if not desc and typeLbl then
+			desc = typeLbl:Clone()
+			desc.Name = "Desc"
+			desc.AnchorPoint = card.AnchorPoint
+			desc.Size = UDim2.new(card.Size.X.Scale, card.Size.X.Offset, typeLbl.Size.Y.Scale * card.Size.Y.Scale, typeLbl.Size.Y.Offset)
+			desc.Position = card.Position + UDim2.new(0, 0, card.Size.Y.Scale * (1 - card.AnchorPoint.Y), card.Size.Y.Offset * (1 - card.AnchorPoint.Y) + 6)
+			desc.TextColor3 = Color3.fromRGB(200, 200, 210)
+			desc.Parent = inspectGui
+		end
+		if desc then
+			desc.Visible = (s.Desc or "") ~= ""
+			setText(desc, s.Desc or "")
+		end
 	end
 	local exist = inspectGui:FindFirstChild("Exist")
 	if exist then
