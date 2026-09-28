@@ -23,65 +23,86 @@ local function remember(o)
 	if not orig[o] then orig[o] = {Position = o.Position, Size = o.Size} end
 end
 
+-- everything is worked out from the DESIGN sizes (scales) and the scrolling frame's own size - never from sizes read
+-- back after changing something (Roblox only updates those on the next frame, so they'd be stale)
 local function reflow()
-	if not scroll or not scroll.Parent then return end
+	if not scroll or not scroll.Parent or not origCanvas then return end
 	if busy then again = true return end
 	busy = true
-	-- back to the design
-	for o, v in orig do if o.Parent then o.Position, o.Size = v.Position, v.Size end end
-	if origCanvas then scroll.CanvasSize = origCanvas end
-	for _, name in FIT do
-		local sec = scroll:FindFirstChild(name)
-		if sec then
-			for _, c in sec:GetChildren() do
-				if c:IsA("GuiObject") and c:GetAttribute("DesignSizeY") then
-					c.Size = UDim2.new(c.Size.X.Scale, c.Size.X.Offset, c:GetAttribute("DesignSizeY"), c:GetAttribute("DesignSizeYOff") or 0)
-				end
-			end
-			local lay = sec:FindFirstChildWhichIsA("UIListLayout")
-			if lay and lay:GetAttribute("DesignPad") then lay.Padding = UDim.new(lay:GetAttribute("DesignPad"), lay:GetAttribute("DesignPadOff") or 0) end
-		end
-	end
-	task.wait()
-	-- fix what depends on the section's height in pixels, then let the section fit its content
-	local moves = {} -- {top = designed Y, delta = px}
+	local winW = scroll.AbsoluteWindowSize.X
+	local canvasPx = origCanvas.Y.Scale * scroll.AbsoluteSize.Y + origCanvas.Y.Offset
+	if winW < 2 or canvasPx < 2 then busy = false return end
+	local moves = {} -- {top = designed Y scale, delta = px}
 	for _, name in FIT do
 		local sec = scroll:FindFirstChild(name)
 		local lay = sec and sec:FindFirstChildWhichIsA("UIListLayout")
-		if sec and lay and sec.AbsoluteSize.Y > 0 then
+		local o = sec and orig[sec]
+		if sec and lay and o then
+			local secH = o.Size.Y.Scale * canvasPx + o.Size.Y.Offset
+			local secW = o.Size.X.Scale * winW + o.Size.X.Offset
+			-- the layout's design padding (saved once)
+			if lay:GetAttribute("DesignPad") == nil then lay:SetAttribute("DesignPad", lay.Padding.Scale) lay:SetAttribute("DesignPadOff", lay.Padding.Offset) end
+			local pad = sec:FindFirstChildOfClass("UIPadding")
+			if pad and pad:GetAttribute("DesignTop") == nil then
+				pad:SetAttribute("DesignTop", pad.PaddingTop.Scale) pad:SetAttribute("DesignTopOff", pad.PaddingTop.Offset)
+				pad:SetAttribute("DesignBottom", pad.PaddingBottom.Scale) pad:SetAttribute("DesignBottomOff", pad.PaddingBottom.Offset)
+			end
+			local top = pad and (pad:GetAttribute("DesignTop") * secH + pad:GetAttribute("DesignTopOff")) or 0
+			local bottom = pad and (pad:GetAttribute("DesignBottom") * secH + pad:GetAttribute("DesignBottomOff")) or 0
+			local vertical = lay.FillDirection == Enum.FillDirection.Vertical
+			local gap = lay:GetAttribute("DesignPad") * (vertical and secH or secW) + lay:GetAttribute("DesignPadOff")
+			-- the shown cards, in pixels from their design size
+			local count, sumH, cardW, cardH = 0, 0, 0, 0
 			for _, c in sec:GetChildren() do
 				if c:IsA("GuiObject") then
 					if c:GetAttribute("DesignSizeY") == nil then c:SetAttribute("DesignSizeY", c.Size.Y.Scale) c:SetAttribute("DesignSizeYOff", c.Size.Y.Offset) end
-					c.Size = UDim2.new(c.Size.X.Scale, c.Size.X.Offset, 0, c.AbsoluteSize.Y)
+					local w = c.Size.X.Scale * secW + c.Size.X.Offset
+					local h = c:GetAttribute("DesignSizeY") * secH + c:GetAttribute("DesignSizeYOff")
+					-- a UIAspectRatioConstraint decides the real size (it keeps the card inside w x h at its ratio)
+					local ar = c:FindFirstChildOfClass("UIAspectRatioConstraint")
+					if ar and ar.AspectRatio > 0 then
+						if w / h > ar.AspectRatio then w = h * ar.AspectRatio else h = w / ar.AspectRatio end
+					end
+					c.Size = UDim2.new(c.Size.X.Scale, c.Size.X.Offset, 0, c:GetAttribute("DesignSizeY") * secH + c:GetAttribute("DesignSizeYOff"))
+					if c.Visible then
+						count += 1
+						sumH += h
+						cardH = math.max(cardH, h)
+						cardW = math.max(cardW, w)
+					end
 				end
 			end
-			if lay:GetAttribute("DesignPad") == nil then lay:SetAttribute("DesignPad", lay.Padding.Scale) lay:SetAttribute("DesignPadOff", lay.Padding.Offset) end
-			if lay.FillDirection == Enum.FillDirection.Vertical then
-				lay.Padding = UDim.new(0, lay.Padding.Scale * sec.AbsoluteSize.Y + lay.Padding.Offset)
+			local content
+			if vertical then
+				content = sumH + gap * math.max(count - 1, 0)
+				lay.Padding = UDim.new(0, gap)
+			else
+				-- (a little tolerance: designs are often a hair wider than the row and still sit on one line)
+				local perRow = math.max(1, math.floor((secW + gap) / math.max(cardW + gap, 1) + 0.06))
+				-- wrap only when there really are more than fit (turning it on otherwise could drop a card to a new row)
+				lay.Wraps = WRAP[name] == true and count > perRow
+				local rows = lay.Wraps and math.max(1, math.ceil(count / perRow)) or 1
+				content = rows * cardH
 			end
-			if WRAP[name] then lay.Wraps = true end
-			local pad = sec:FindFirstChildOfClass("UIPadding")
-			local top = pad and (pad.PaddingTop.Scale * sec.AbsoluteSize.Y + pad.PaddingTop.Offset) or 0
-			local bottom = pad and (pad.PaddingBottom.Scale * sec.AbsoluteSize.Y + pad.PaddingBottom.Offset) or 0
 			if pad then pad.PaddingTop = UDim.new(0, top) pad.PaddingBottom = UDim.new(0, bottom) end
-			task.wait()
-			local need = lay.AbsoluteContentSize.Y + top + bottom + 4
-			local delta = need - sec.AbsoluteSize.Y
-			sec.Size = UDim2.new(sec.Size.X.Scale, sec.Size.X.Offset, 0, need)
-			table.insert(moves, {top = orig[sec].Position.Y.Scale, delta = delta})
+			local need = math.ceil(top + content + bottom + 2)
+			-- (safety: never squash a section that has cards to almost nothing)
+			if count > 0 and need < secH * 0.25 then need = secH end
+			sec.Size = UDim2.new(o.Size.X.Scale, o.Size.X.Offset, 0, need)
+			table.insert(moves, {top = o.Position.Y.Scale, delta = need - secH})
 		end
 	end
 	-- everything below a section that changed moves by that much
 	local total = 0
 	for _, mv in moves do total += mv.delta end
-	for o, v in orig do
-		if o.Parent == scroll then
+	for obj, v in orig do
+		if obj.Parent == scroll then
 			local shift = 0
 			for _, mv in moves do if v.Position.Y.Scale > mv.top + 1e-4 then shift += mv.delta end end
-			o.Position = v.Position + UDim2.fromOffset(0, shift)
+			obj.Position = v.Position + UDim2.fromOffset(0, shift)
 		end
 	end
-	if origCanvas then scroll.CanvasSize = origCanvas + UDim2.fromOffset(0, total) end
+	scroll.CanvasSize = origCanvas + UDim2.fromOffset(0, total)
 	busy = false
 	if again then again = false task.defer(reflow) end
 end
