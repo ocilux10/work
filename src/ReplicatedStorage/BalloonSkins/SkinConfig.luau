@@ -136,7 +136,7 @@ M.Skins = {
 	-------------------------------------------------- EXCLUSIVE
 	{Id = "RainbowPrism", Name = "Rainbow Prism", Type = "Balloon", Rarity = "Exclusive", Size = 1.2, Desc = "All the colours at once.",
 		Look = {Shape = "Default", Color = C(215, 185, 255), Material = "Foil", Reflectance = 0.3, FX = {"Sparkles", "Ring", "Aura"}, FXColor = "Rainbow", Glow = C(255, 255, 255), RainbowBody = true}},
-	{Id = "Celestial", Name = "Celestial", Type = "Balloon", Rarity = "Exclusive", Size = 1.2, Desc = "Sent down from the heavens.",
+	{Id = "Glory", Name = "Glory", Type = "Balloon", Rarity = "Exclusive", Size = 1.2, Desc = "Sent down from the heavens.",
 		Look = {Shape = "Royal", Color = C(255, 205, 90), Material = "Neon", FX = {"Halo", "DoubleRing", "Sparkles", "Aura"}, FXColor = C(255, 225, 130), FXColor2 = C(255, 255, 255), Glow = {Color = C(255, 230, 150), Brightness = 3, Range = 12}}},
 	{Id = "VoidKing", Name = "Void King", Type = "Balloon", Rarity = "Exclusive", Size = 1.2, Desc = "Rules over nothing. And everything.",
 		Look = {Shape = "ShadowVoid", Color = C(75, 10, 120), Material = "CrackedLava", FX = {"Fire", "DoubleRing", "Implode", "Halo"}, FXColor = C(170, 60, 255), FXColor2 = C(40, 0, 80), Glow = {Color = C(150, 50, 255), Brightness = 3, Range = 12}}},

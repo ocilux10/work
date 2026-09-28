@@ -34,7 +34,7 @@ M.Crates = {
 		Id = "Basic", Name = "Basic Chest", Tag = "CHEST", Color = C(190, 200, 210), Order = 1,
 		Look = {Body = C(205, 212, 222), Lid = C(220, 226, 235), Trim = C(120, 128, 140), Lock = C(70, 170, 255), LockMaterial = "Neon"},
 		ShowInShop = true, Start = nil, End = nil,
-		Price = {Coins = 500, Robux = 49, ProductId = 0},
+		Price = {Coins = 500, Robux = 19, ProductId = 3715300766},
 		Contents = {
 			-- common 85
 			{Id = "Honeycomb",  Chance = 15},
@@ -61,7 +61,7 @@ M.Crates = {
 		Id = "Premium", Name = "Premium Chest", Tag = "PREMIUM", Color = C(60, 140, 255), Order = 2,
 		Look = {Body = C(40, 105, 225), Lid = C(55, 125, 240), Trim = C(25, 45, 100), Lock = C(255, 200, 60), LockMaterial = "Neon"},
 		ShowInShop = true, Start = nil, End = nil,
-		Price = {Coins = 1500, Robux = 149, ProductId = 0},
+		Price = {Coins = 1500, Robux = 49, ProductId = 3715300903},
 		Contents = {
 			-- rare 50
 			{Id = "CandySwirl",   Chance = 7},
@@ -106,7 +106,7 @@ M.Crates = {
 		Look = {Body = C(28, 28, 34), Lid = C(38, 38, 46), Trim = C(215, 165, 45), Lock = C(255, 45, 45), LockMaterial = "Neon",
 			Sparkle = true, SparkleColor = C(255, 200, 80)},
 		ShowInShop = true, Start = nil, End = "2026-10-31 23:59", -- leaves the shop at the end of October
-		Price = {Coins = 5000, Robux = 399, ProductId = 0},
+		Price = {Coins = 15000, Robux = 399, ProductId = 3715300992},
 		Contents = {
 			-- epic 45
 			{Id = "Glitch",        Chance = 8},
@@ -134,7 +134,7 @@ M.Crates = {
 			{Id = "Diamond",  Chance = 0.5},
 			-- exclusive 3
 			{Id = "RainbowPrism", Chance = 1.2},
-			{Id = "Celestial",    Chance = 1},
+			{Id = "Glory",    Chance = 1},
 			{Id = "VoidKing",     Chance = 0.8},
 		},
 	},

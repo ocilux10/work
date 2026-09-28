@@ -45,7 +45,7 @@ ShopConfig.Purchase = {
 -- A player owns a pass if they bought it on Roblox OR it was gifted OR an admin gave it. Scripts check with
 --   player:GetAttribute("Pass_" .. Name) == true
 ShopConfig.Passes = {
-	{Name = "VIP", Id = 0, Robux = 249, GiftProductId = 0, Tag = "PASSES", Badge = "20% OFF", Image = "",
+	{Name = "VIP", Id = 2001362269, Robux = 249, GiftProductId = 0, Tag = "PASSES", Badge = "20% OFF", Image = "",
 		Perks = "Perks: VIP Head Tag • VIP Chat Tag • Exclusive VIP Balloon"},
 	-- {Name = "2x Coins", Id = 0, Robux = 199, GiftProductId = 0, Tag = "PASSES", Badge = "", Image = "", Perks = "Perks: Double coins from matches"},
 }
@@ -62,17 +62,17 @@ ShopConfig.OwnedText = "OWNED" -- the Buy button on a pass you have
 ShopConfig.Exclusives = {
 	{Balloon = "RainbowPrism", Start = nil, End = "2026-10-31 23:59", Tag = "EXCLUSIVE",
 		Amounts = {
-			{Amount = 1,  Robux = 249,  ProductId = 0},
-			{Amount = 2,  Robux = 479,  ProductId = 0},
-			{Amount = 5,  Robux = 1149, ProductId = 0},
-			{Amount = 10, Robux = 2199, ProductId = 0},
+			{Amount = 1,  Robux = 249,  ProductId = 3715323731},
+			{Amount = 2,  Robux = 479,  ProductId = 3715324060},
+			{Amount = 5,  Robux = 1149, ProductId = 3715324143},
+			{Amount = 10, Robux = 2199, ProductId = 3715324176},
 		}},
-	{Balloon = "Celestial", Start = nil, End = "2026-10-31 23:59", Tag = "EXCLUSIVE",
+	{Balloon = "VoidKing", Start = nil, End = "2026-10-31 23:59", Tag = "EXCLUSIVE",
 		Amounts = {
-			{Amount = 1,  Robux = 499,  ProductId = 0},
-			{Amount = 2,  Robux = 949,  ProductId = 0},
-			{Amount = 5,  Robux = 2299, ProductId = 0},
-			{Amount = 10, Robux = 4399, ProductId = 0},
+			{Amount = 1,  Robux = 499,  ProductId = 3715324285},
+			{Amount = 2,  Robux = 949,  ProductId = 3715324327},
+			{Amount = 5,  Robux = 2299, ProductId = 3715324357},
+			{Amount = 10, Robux = 4399, ProductId = 3715324396},
 		}},
 }
 ShopConfig.AmountText = "x{n}"                   -- the amount button
