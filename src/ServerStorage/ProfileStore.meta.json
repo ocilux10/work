@@ -1,11 +1,11 @@
 {
   "properties": {
-    "Tags": [
-      "Assistant:6f161739-5ca1-4774-8563-0f28b3f0922d"
-    ],
     "Capabilities": {
       "SecurityCapabilities": 18014364149484288
     },
+    "Tags": [
+      "Assistant:6f161739-5ca1-4774-8563-0f28b3f0922d"
+    ],
     "SourceAssetId": 109379033046155.0
   }
 }

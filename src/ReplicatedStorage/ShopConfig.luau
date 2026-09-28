@@ -58,8 +58,8 @@ ShopConfig.OwnedText = "OWNED" -- the Buy button on a pass you have
 --   Start / End  UTC "YYYY-MM-DD HH:MM" (nil = always). The card shows the time left until End.
 --   Tag        the tag at the top of the card
 ShopConfig.Exclusives = {
-	{Balloon = "RainbowPrism", Robux = 399, ProductId = 0, Start = nil, End = "2026-10-31 23:59", Tag = "EXCLUSIVE"},
-	{Balloon = "Celestial",    Robux = 599, ProductId = 0, Start = nil, End = "2026-10-31 23:59", Tag = "EXCLUSIVE"},
+	{Balloon = "RainbowPrism", Robux = 249, ProductId = 0, Start = nil, End = "2026-10-31 23:59", Tag = "EXCLUSIVE"},
+	{Balloon = "Celestial",    Robux = 499, ProductId = 0, Start = nil, End = "2026-10-31 23:59", Tag = "EXCLUSIVE"},
 }
 ShopConfig.ExclusiveTypeText = "{rarity} {type}" -- the small line under the balloon's name ("Exclusive Balloon")
 ShopConfig.OwnedExclusiveText = nil                -- e.g. "OWNED" to stop people buying one they have (nil = can buy more)

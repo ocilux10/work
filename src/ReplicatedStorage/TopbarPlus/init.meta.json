@@ -1,8 +1,5 @@
 {
   "properties": {
-    "Tags": [
-      "Assistant:4f7b5dcd-0dca-4c5f-81c6-a52b460ab16c"
-    ],
     "IconTint": {
       "Color3": [
         0.0,
@@ -10,6 +7,9 @@
         0.0
       ]
     },
+    "Tags": [
+      "Assistant:4f7b5dcd-0dca-4c5f-81c6-a52b460ab16c"
+    ],
     "SourceAssetId": 92368439343389.0
   }
 }
