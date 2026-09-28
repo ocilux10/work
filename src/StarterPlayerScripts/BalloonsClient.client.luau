@@ -122,9 +122,15 @@ local function openActions(c, e)
 	local ca, cs = c.AbsolutePosition, c.AbsoluteSize
 	local at = ca + cs / 2
 	if not GuiService.SelectedObject then
+		-- the mouse is in whole-window pixels; the menu's ScreenGui may start lower (under the top bar) or be inset on
+		-- phones. How much it's shifted = window size - ScreenGui size (top bar at the top, safe areas split both sides).
 		local m = UIS:GetMouseLocation()
 		local sg = frame:FindFirstAncestorOfClass("ScreenGui")
-		if not (sg and sg.IgnoreGuiInset) then m -= GuiService:GetGuiInset() end
+		local view = workspace.CurrentCamera.ViewportSize
+		if sg then
+			local diff = view - sg.AbsoluteSize
+			m -= Vector2.new(diff.X / 2, diff.Y)
+		end
 		at = m
 	end
 	actionMenu.Visible = true
@@ -133,17 +139,25 @@ local function openActions(c, e)
 	actionMenu.AnchorPoint = Vector2.new(0, 0)
 	-- measure how the parent really maps offsets to the screen (a UIScale on the menu / screen changes it), so the
 	-- menu's top-left corner lands EXACTLY on the click
-	actionMenu.Position = UDim2.fromOffset(0, 0)
-	local a0 = actionMenu.AbsolutePosition
-	actionMenu.Position = UDim2.fromOffset(100, 100)
-	local a1 = actionMenu.AbsolutePosition
-	local kx, ky = math.max((a1.X - a0.X) / 100, 0.01), math.max((a1.Y - a0.Y) / 100, 0.01)
+	-- the menu's top-left corner goes EXACTLY on the click. Offsets inside its parent are multiplied by every UIScale
+	-- above it, so: position = (click - parent's corner) / those scales. (Reading AbsolutePosition right after moving
+	-- something gives the OLD value until the next frame, so only values that don't change here are used.)
+	local parent = actionMenu.Parent
+	local k = 1
+	local a = parent
+	while a do
+		local sc = a:FindFirstChildOfClass("UIScale")
+		if sc then k *= sc.Scale end
+		if a:IsA("LayerCollector") then break end
+		a = a.Parent
+	end
 	local ms = actionMenu.AbsoluteSize
 	-- (kept inside the menu: near the right / bottom edge it opens to the left / upwards instead)
 	local tx, ty = at.X, at.Y
 	if tx + ms.X > fa.X + fs.X - 4 then tx -= ms.X end
 	if ty + ms.Y > fa.Y + fs.Y - 4 then ty -= ms.Y end
-	actionMenu.Position = UDim2.fromOffset((tx - a0.X) / kx, (ty - a0.Y) / ky)
+	local pp = parent:IsA("GuiObject") and parent.AbsolutePosition or Vector2.zero
+	actionMenu.Position = UDim2.fromOffset((tx - pp.X) / k, (ty - pp.Y) / k)
 	pop.Scale = 0.7
 	TweenService:Create(pop, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
 end
@@ -304,7 +318,28 @@ local function setTab(which)
 	SFX.Play("ButtonPress")
 end
 
+-- the practice-arena loading screen (StarterPlayerScripts > LoadingTransitionClient; timings = ReplicatedStorage >
+-- LoadingTransition attributes FadeIn / Hold / FadeOut): fades in, `fn` runs behind it, fades out
+local function withLoading(fn)
+	local lt = player:FindFirstChild("PlayerScripts") and player.PlayerScripts:FindFirstChild("LoadingTransitionClient")
+	local play = lt and lt:FindFirstChild("Play")
+	local cfg = RS:FindFirstChild("LoadingTransition")
+	if not play or (cfg and cfg:GetAttribute("Enabled") == false) then fn() return end
+	play:Fire("In")
+	task.wait((cfg and cfg:GetAttribute("FadeIn") or 0.15) + (cfg and cfg:GetAttribute("Hold") or 0.12))
+	fn()
+	play:Fire("Out")
+end
+
+local stopInspectNow -- forward
+local stopping = false
 local function stopInspect()
+	if not inspecting or stopping then return end
+	stopping = true
+	withLoading(function() stopInspectNow() end)
+	stopping = false
+end
+stopInspectNow = function()
 	if not inspecting then return end
 	inspecting = nil
 	player:SetAttribute("InspectingBalloon", nil)
@@ -327,7 +362,13 @@ local function stopInspect()
 	SFX.Play("Close")
 end
 
+local startInspectNow -- forward
 local function startInspect(id, from)
+	if inspecting or not inspectGui or not Skins.ById[id] then return end
+	if player:GetAttribute("InArena") or player:GetAttribute("MatchId") ~= nil then return end
+	withLoading(function() startInspectNow(id, from) end)
+end
+startInspectNow = function(id, from)
 	if inspecting or not inspectGui or not Skins.ById[id] then return end
 	if player:GetAttribute("InArena") or player:GetAttribute("MatchId") ~= nil then return end
 	inspecting = id
@@ -496,7 +537,7 @@ local inspectEvent = script:FindFirstChild("Inspect") or Instance.new("BindableE
 inspectEvent.Name = "Inspect"
 inspectEvent.Parent = script
 inspectEvent.Event:Connect(function(id, from) startInspect(id, typeof(from) == "Instance" and from or nil) end)
-player.CharacterAdded:Connect(function() if inspecting then stopInspect() end end)
+player.CharacterAdded:Connect(function() if inspecting then stopInspectNow() end end)
 
 ------------------------------------------------------------ HOOK THE MENU (again after every respawn)
 local function hook(m)

@@ -38,7 +38,8 @@ local function set(list, a, time)
 		else for k, v in goal do e[1][k] = v end end
 	end
 end
-remote.OnClientEvent:Connect(function(kind)
+-- other client scripts (e.g. the balloon Inspect screen): LoadingTransitionClient.Play:Fire("In" / "Out")
+local function run(kind)
 	local g, fade, list = parts()
 	if not g then return end
 	token += 1
@@ -59,4 +60,9 @@ remote.OnClientEvent:Connect(function(kind)
 		set(list, 0, t)
 		task.delay(t, function() if token == my then g.Enabled = false end end)
 	end
-end)
+end
+remote.OnClientEvent:Connect(run)
+local play = script:FindFirstChild("Play") or Instance.new("BindableEvent")
+play.Name = "Play"
+play.Parent = script
+play.Event:Connect(run)

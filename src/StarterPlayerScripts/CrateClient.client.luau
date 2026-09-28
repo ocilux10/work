@@ -325,11 +325,13 @@ Opened.OnClientEvent:Connect(function(data)
 end)
 
 ------------------------------------------------------------ GIFTING A CHEST (coins or Robux)
--- Coins: a copy of Main > GiftFrame (the same player list the coin packs use) - pick someone, you pay, they get the spin.
--- Robux: the shop's own Robux gift list (ShopFrame > GiftCrate). Chests with both: a "Pay with Robux" button switches.
+-- Main > CrateGiftFrame (the player list; made from Main > GiftFrame if it isn't in StarterGui). Each player row
+-- (ScrollingFrame > Frame = the template) has Gift = pay with coins and GiftRobux = pay with Robux, side by side.
+-- Coins: CrateServer takes your coins and the other player gets the spin. Robux: a purchase (ShopServer gives it).
 local NameBadge = require(RS:WaitForChild("NameBadge"))
 local ShopConfigMod = require(RS:WaitForChild("ShopConfig"))
-local giftUI, giftRows, giftCrate = nil, {}, nil
+local ShopRemote = RS:WaitForChild("Matchmaking"):WaitForChild("Remotes"):WaitForChild("Shop")
+local giftUI, giftRows = nil, {}
 local function canGiftAny(crate)
 	return ShopConfigMod.GiftingEnabled ~= false and Config.State(crate) == "open" and (Config.HasCoins(crate) or Config.RobuxReady(crate))
 end
@@ -337,42 +339,41 @@ local function closeGift(backToShop)
 	if giftUI then giftUI.Visible = false end
 	if backToShop and shop then shop.Visible = true end
 end
-local function robuxGift(crate)
-	closeGift(false)
-	local ev = shop and shop:FindFirstChild("GiftCrate")
-	if ev then ev:Fire(crate) end
+-- the gift UI (in StarterGui, or made from GiftFrame the first time)
+local function giftFrame()
+	if giftUI and giftUI.Parent then return giftUI end
+	giftUI = main and main:FindFirstChild("CrateGiftFrame")
+	if not giftUI then
+		local src = main and main:FindFirstChild("GiftFrame")
+		if not src then return nil end
+		giftUI = src:Clone()
+		giftUI.Name = "CrateGiftFrame"
+		local row = giftUI:FindFirstChild("ScrollingFrame") and giftUI.ScrollingFrame:FindFirstChild("Frame")
+		local b = row and (row:FindFirstChild("Gift") or row:FindFirstChildWhichIsA("GuiButton"))
+		if b and not row:FindFirstChild("GiftRobux") then
+			b.Name = "Gift"
+			local rb = b:Clone()
+			rb.Name = "GiftRobux"
+			local w = b.Size
+			rb.Position = b.Position - UDim2.new(w.X.Scale * 1.08, w.X.Offset * 1.08 + (w.X.Offset == 0 and 0 or 6), 0, 0)
+			rb.Parent = row
+		end
+		giftUI.Parent = main
+	end
+	giftUI.Visible = false
+	local cancel = giftUI:FindFirstChild("Cancel", true)
+	if cancel and cancel:IsA("GuiButton") then cancel.Activated:Connect(function() closeGift(true) end) end
+	return giftUI
 end
 local function openGift(crate)
 	if not canGiftAny(crate) then SFX.Play("Error") return end
-	if not Config.HasCoins(crate) then robuxGift(crate) return end
-	local src = main and main:FindFirstChild("GiftFrame")
-	if not src then SFX.Play("Error") return end
-	if not (giftUI and giftUI.Parent) then
-		giftUI = src:Clone()
-		giftUI.Name = "CrateGiftFrame"
-		giftUI.Parent = main
-		local cancel = giftUI:FindFirstChild("Cancel", true)
-		if cancel and cancel:IsA("GuiButton") then
-			cancel.Activated:Connect(function() closeGift(true) end)
-			-- "Pay with Robux" next to Cancel (hidden for coin-only chests)
-			local pay = cancel:Clone()
-			pay.Name = "PayRobux"
-			local w = cancel.Size
-			pay.Position = cancel.Position - UDim2.new(w.X.Scale * 1.1, w.X.Offset * 1.1 + (w.X.Offset == 0 and 0 or 6), 0, 0)
-			pay.Parent = cancel.Parent
-			btnText(pay, "Pay with \u{E002}")
-			pay.Activated:Connect(function() if giftCrate then robuxGift(giftCrate) end end)
-		end
-	end
-	local sc = giftUI:FindFirstChild("ScrollingFrame")
+	local ui = giftFrame()
+	local sc = ui and ui:FindFirstChild("ScrollingFrame")
 	local tpl = sc and sc:FindFirstChild("Frame")
 	if not tpl then SFX.Play("Error") return end
 	tpl.Visible = false
 	for _, r in giftRows do r:Destroy() end
 	table.clear(giftRows)
-	local pay = giftUI:FindFirstChild("PayRobux", true)
-	giftCrate = crate
-	if pay then pay.Visible = Config.RobuxReady(crate) end
 	local any = false
 	for i, p in Players:GetPlayers() do
 		if p ~= player then
@@ -386,9 +387,10 @@ local function openGift(crate)
 			if d then d.Text = "@" .. p.Name end
 			local av = r:FindFirstChild("Avatar")
 			if av and av:IsA("ImageLabel") then av.Image = ("rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150"):format(p.UserId) end
-			local b = r:FindFirstChild("Gift") or r:FindFirstChildWhichIsA("GuiButton")
-			if b then
-				local closed = p:GetAttribute("Pref_AcceptGifts") == false
+			local closed = p:GetAttribute("Pref_AcceptGifts") == false
+			local b, rb = r:FindFirstChild("Gift"), r:FindFirstChild("GiftRobux")
+			if b and b:IsA("GuiButton") then
+				b.Visible = Config.HasCoins(crate)
 				btnText(b, closed and "Off" or coinText(crate))
 				b.Activated:Connect(function()
 					local ok, msg = Remote:InvokeServer("GiftCoins", crate.Id, p)
@@ -397,13 +399,32 @@ local function openGift(crate)
 					if ok then closeGift(true) end
 				end)
 			end
+			if rb and rb:IsA("GuiButton") then
+				rb.Visible = Config.RobuxReady(crate)
+				rb:SetAttribute("ClickSound", "")
+				btnText(rb, closed and "Off" or robuxText(crate))
+				rb.Activated:Connect(function()
+					local ok, why = ShopRemote:InvokeServer("StartGift", {Target = p, Crate = crate.Id})
+					if not ok then SFX.Play("Error") notice(why or "Can't gift right now") return end
+					closeGift(false)
+					Purchase.Product(crate.Price.ProductId)
+					-- back to the shop once the purchase window is done
+					local conn
+					conn = game:GetService("MarketplaceService").PromptProductPurchaseFinished:Connect(function(uid)
+						if uid ~= player.UserId then return end
+						conn:Disconnect()
+						task.wait(0.8)
+						if shop then shop.Visible = true end
+					end)
+				end)
+			end
 			r.Parent = sc
 			table.insert(giftRows, r)
 		end
 	end
 	local empty = sc:FindFirstChild("Empty") if empty then empty.Visible = not any end
 	if shop then shop.Visible = false end
-	giftUI.Visible = true
+	ui.Visible = true
 	SFX.Play("Open")
 end
 
@@ -516,8 +537,9 @@ local function buildCards()
 		cards[crate.Id] = entry
 		-- the chest model on the card (a ViewportFrame over the picture; the picture stays if the model is missing)
 		local img = card:FindFirstChild("CrateImage")
-		if img then
-			local vp = Instance.new("ViewportFrame")
+		local vp = card:FindFirstChild("ChestView") -- (in StarterGui: the Crate card's ChestView)
+		if not vp and img then
+			vp = Instance.new("ViewportFrame")
 			vp.Name = "ChestView"
 			vp.BackgroundTransparency = 1
 			vp.AnchorPoint, vp.Position, vp.Size = img.AnchorPoint, img.Position, img.Size
@@ -526,8 +548,10 @@ local function buildCards()
 			vp.LightColor = Color3.new(1, 1, 1)
 			vp.LightDirection = Vector3.new(-1, -1.5, -1)
 			vp.Parent = card
+		end
+		if vp then
 			entry.model, entry.center = showChest(vp, crate)
-			img.Visible = entry.model == nil
+			if img then img.Visible = entry.model == nil end
 		end
 		-- whole card = contents page (Buy / Gift sit on top and keep working)
 		local area = Instance.new("TextButton")

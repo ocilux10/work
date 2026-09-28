@@ -210,6 +210,7 @@ local function openStats(title, rows)
 		local back = page:FindFirstChild("Back")
 		if back and back:IsA("GuiButton") then back.Activated:Connect(function() page.Visible = false SFX.Play("Close") end) end
 	end
+	-- (AdminFrame > Stats in StarterGui: its Back button is hooked in hook() like Logs)
 	setText(page:FindFirstChild("Title"), title:upper())
 	local empty = page:FindFirstChild("Empty") if empty then empty.Visible = false end
 	local sc = page:FindFirstChild("ScrollingFrame")
@@ -264,8 +265,7 @@ local function hook(main)
 	frame.Visible = false
 	local off = frame:FindFirstChild("TopBar") and frame.TopBar:FindFirstChild("Off")
 	if off and off:IsA("GuiButton") then off.Activated:Connect(function() frame.Visible = false SFX.Play("Close") end) end
-	local oldStats = frame:FindFirstChild("Stats") if oldStats then oldStats:Destroy() end
-	for _, n in {"Logs", "BalloonPicker"} do
+	for _, n in {"Logs", "BalloonPicker", "Stats"} do
 		local p = frame:FindFirstChild(n)
 		if p then
 			p.Visible = false
