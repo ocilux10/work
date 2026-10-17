@@ -89,7 +89,7 @@ local function buildModel(name, userId)
 end
 
 ------------------------------------------------------------ ANIMATIONS (the same ones players use)
-local function loadTracks(hum)
+local function loadTracks(hum, lobby)
 	local animator = hum:FindFirstChildOfClass("Animator") or Instance.new("Animator", hum)
 	local t = {}
 	local function load(id, looped, prio)
@@ -102,21 +102,23 @@ local function loadTracks(hum)
 	end
 	local A, C = MoveCfg.Anims or {}, Combat.Animations or {}
 	local function cid(n) return type(C[n]) == "table" and C[n].Id or (type(C[n]) == "string" and C[n]) or nil end
-	t.Idle = load(cid("FightIdle") or A.Idle, true, Enum.AnimationPriority.Idle)
+	-- (in the lobby: the normal idle a player has there, not the fighting one)
+	t.Idle = load((not lobby and cid("FightIdle")) or A.Idle, true, Enum.AnimationPriority.Idle)
 	t.Walk = load(A.Walk, true, Enum.AnimationPriority.Movement)
 	t.Run = load(A.RunFight or A.Run, true, Enum.AnimationPriority.Movement)
 	t.Jump = load(A.Jump, false, Enum.AnimationPriority.Movement)
 	t.Fall = load(A.Fall, true, Enum.AnimationPriority.Movement)
 	t.Slide = load(A.Slide, true, Enum.AnimationPriority.Action)
 	t.Climb = load(A.Climb, false, Enum.AnimationPriority.Action)
-	t.Hold = load(cid("ItemHold"), true, Enum.AnimationPriority.Action)
+	t.Hold = not lobby and load(cid("ItemHold"), true, Enum.AnimationPriority.Action) or nil
 	t.Throw = load(cid("Throw"), false, Enum.AnimationPriority.Action2)
 	t.Swing = load(cid("Swing") or cid("Melee"), false, Enum.AnimationPriority.Action2)
 	return t
 end
 
 ------------------------------------------------------------ WHO TO FIGHT
-local function charOf(e) return e.Model or e.Character end
+-- (a Player has no .Model - asking for it errors, so check what it is first)
+local function charOf(e) if typeof(e) == "Instance" then return e.Character end return e.Model end
 local function aliveRoot(e)
 	local c = charOf(e)
 	local h = c and c:FindFirstChildOfClass("Humanoid")
@@ -380,7 +382,8 @@ function M.New(opts)
 end
 
 -- (re)builds the bot's body at cf (yields while the avatar loads). Returns true when it's standing there.
-function M.Place(bot, cf)
+-- lobby = true: standing around like a player in the lobby (no balloon, normal idle) - the bots waiting on a pad
+function M.Place(bot, cf, lobby)
 	if not bots[bot] then return false end
 	local old = bot.Model
 	bot.Alive = false
@@ -418,20 +421,31 @@ function M.Place(bot, cf)
 	while not model:GetAttribute("CombatRegistered") and os.clock() - t0 < 2 do task.wait() end
 	hum.MaxHealth = Combat.MaxHealth or 100
 	hum.Health = hum.MaxHealth
-	bot.Tracks = loadTracks(hum)
+	bot.Tracks = loadTracks(hum, lobby)
 	if bot.Tracks.Idle then bot.Tracks.Idle:Play() end
+	if lobby then
+		bot.Alive = true
+		return true
+	end
 	-- the balloon arm stays still like a player's (players' screens hold their own arm still; a bot's is done here):
 	-- the right arm's joints become welds, so the walk / idle animations can't swing the balloon around
-	for _, partName in {"RightUpperArm", "RightLowerArm", "RightHand"} do
-		local part = model:FindFirstChild(partName)
-		for _, m in part and part:GetChildren() or {} do
-			if m:IsA("Motor6D") and m.Part0 and m.Part1 then
-				local w = Instance.new("Weld")
-				w.Name = m.Name -- (BalloonCombatServer still finds "RightShoulder" if it raises the arm)
-				w.Part0, w.Part1, w.C0, w.C1 = m.Part0, m.Part1, m.C0, m.C1
-				m:Destroy()
-				w.Parent = part
-			end
+	local armParts = {RightUpperArm = true, RightLowerArm = true, RightHand = true}
+	for _, m in model:GetDescendants() do
+		if m:IsA("Motor6D") and m.Part0 and m.Part1 and armParts[m.Part1.Name] then
+			local w = Instance.new("Weld")
+			w.Name = m.Name -- (BalloonCombatServer still finds "RightShoulder" if it raises the arm)
+			w.Part0, w.Part1, w.C0, w.C1 = m.Part0, m.Part1, m.C0, m.C1
+			local parent = m.Parent
+			m:Destroy()
+			w.Parent = parent
+		elseif m:IsA("AnimationConstraint") and m.Attachment0 and m.Attachment1 and m.Attachment1.Parent
+			and armParts[m.Attachment1.Parent.Name] then
+			-- NEW AVATAR JOINTS (no Motor6Ds): the animated joint goes off and a rigid one holds the arm in its rest pose
+			local r = Instance.new("RigidConstraint")
+			r.Name = m.Name .. "Hold"
+			r.Attachment0, r.Attachment1 = m.Attachment0, m.Attachment1
+			r.Parent = m.Parent
+			m.Enabled = false
 		end
 	end
 	-- a balloon in its hand, like a player's
@@ -450,6 +464,8 @@ function M.Place(bot, cf)
 		bot.Alive = false
 		hum:Move(Vector3.zero)
 		align.Enabled = false
+		-- (the stiff balloon arm goes limp with the rest of the body)
+		for _, r in model:GetDescendants() do if r:IsA("RigidConstraint") and r.Name:match("Hold$") then r:Destroy() end end
 		M.Died:Fire(bot)
 		if bot.DespawnOnDeath then
 			task.delay(bot.DespawnAfter or 4, function() if bot.Model == model and not bot.Alive then M.Despawn(bot) end end)

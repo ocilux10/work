@@ -364,7 +364,7 @@ local function syncPadBots(area)
 			local bot = Bots.New({Identity = ident, Force = true})
 			if not bot then area.padBots[ident] = nil return end
 			bot:SetAttribute("Frozen", true)
-			local ok = Bots.Place(bot, CFrame.lookAt(pos, Vector3.new(other.center.X, pos.Y, other.center.Z)))
+			local ok = Bots.Place(bot, CFrame.lookAt(pos, Vector3.new(other.center.X, pos.Y, other.center.Z)), true)
 			if not ok or area.padBots[ident] ~= true then
 				Bots.Despawn(bot, true)
 				if area.padBots[ident] == true then area.padBots[ident] = nil end
@@ -1043,6 +1043,23 @@ local function runMatch(match)
 		match.votes = {}
 		match.voteEndsAt = now() + Config.VoteTime
 		send(match, "VoteStart", {EndsAt = match.voteEndsAt, Teams = teamInfos(match)})
+		-- BOTS vote too: a random map, a moment after voting opens (like a person picking)
+		for _, b in allPlayers(match) do
+			if isBot(b) then
+				task.delay(1 + math.random() * math.max(0.5, Config.VoteTime - 3), function()
+					if match.phase ~= "vote" then return end
+					match.votes[b] = math.random(1, #Config.Maps)
+					match.votePos = match.votePos or {}
+					match.votePos[b] = {0.2 + math.random() * 0.6, 0.2 + math.random() * 0.6}
+					local list = {}
+					for voter, v in match.votes do
+						local pos = match.votePos[voter] or {}
+						table.insert(list, {UserId = voter.UserId, Map = v, X = pos[1], Y = pos[2]})
+					end
+					send(match, "VoteUpdate", {Votes = list})
+				end)
+			end
+		end
 		while now() < match.voteEndsAt and not match.cancelled and not match.forfeitWinner do
 			task.wait(0.1)
 		end
