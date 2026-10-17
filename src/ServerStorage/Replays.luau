@@ -122,7 +122,7 @@ function Replays.Save(rep)
 	remember(rep.Id, json)
 	local sum = summary(rep)
 	local users = {}
-	for _, p in rep.People do table.insert(users, p.UserId) end
+	for _, p in rep.People do if not p.Bot then table.insert(users, p.UserId) end end -- (bots wear real accounts' avatars)
 	if canStore() then
 		retry(function() store:SetAsync("R_" .. rep.Id, json) end)
 		retry(function() store:SetAsync("RC_" .. rep.Id, #users) end)

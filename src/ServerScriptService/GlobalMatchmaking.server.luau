@@ -34,6 +34,19 @@ ClientReady.Parent = Remotes
 local Hooks = script.Parent:WaitForChild("MatchmakingServer"):WaitForChild("Hooks")
 local StartMatchHook = Hooks:WaitForChild("StartMatch")
 
+-- BOTS (ServerStorage > Bots > BotConfig): a search that finds nobody for BotConfig.FillAfter seconds starts a match
+-- right here with bots in the empty places (real players found before then always come first)
+local BotCfg
+do
+	local folder = game:GetService("ServerStorage"):FindFirstChild("Bots")
+	local mod = folder and folder:FindFirstChild("BotConfig")
+	if mod then
+		local ok, res = pcall(require, mod)
+		if ok then BotCfg = res end
+	end
+end
+local function botFillOn() return BotCfg ~= nil and BotCfg.Enabled == true and BotCfg.FillMatchmaking == true end
+
 local G = Config.Global or {}
 local MODES = {}
 for _, m in G.Modes or {"1v1", "2v2", "3v3", "4v4"} do MODES[m] = tonumber(m:match("^(%d)v")) end
@@ -196,7 +209,8 @@ local function onMatchFound(data)
 	for _, team in data.Teams do
 		for _, id in team do
 			local p = playerById(id)
-			if p then table.insert(mine, p) end
+			-- (already playing a bot match that started a moment ago: stays in it)
+			if p and not (p:GetAttribute("MatchId") ~= nil and not p:GetAttribute("MatchEnded")) then table.insert(mine, p) end
 		end
 	end
 	if #mine == 0 then return end
@@ -258,7 +272,7 @@ end
 local function tryMatch(mode, region)
 	local size = MODES[mode]
 	local need = size * 2
-	local solo = IS_STUDIO and Config.SoloTest
+	local solo = IS_STUDIO and Config.SoloTest and not botFillOn() -- (with bots on, Studio tests get bots instead)
 	if solo then need = 1 end
 	local name = queueName(mode, region)
 	if not takeLock(name) then return end
@@ -333,6 +347,55 @@ local function tryMatch(mode, region)
 	end
 end
 
+-- BOT FILL: the searches on THIS server that have waited long enough, packed into one match per mode
+-- (a party always stays on one team); every empty place left gets a bot
+local function botFill()
+	if not botFillOn() or IS_MATCH_SERVER then return end
+	local byMode = {}
+	for p, s in searching do
+		if p.Parent == Players and now() - s.since >= (BotCfg.FillAfter or 10) then
+			byMode[s.mode] = byMode[s.mode] or {}
+			table.insert(byMode[s.mode], {owner = p, s = s})
+		end
+	end
+	for mode, list in byMode do
+		local size = MODES[mode]
+		table.sort(list, function(a, b) return a.s.since < b.s.since end)
+		local teams, room, owners = {{}, {}}, {size, size}, {}
+		for _, e in list do
+			local members = {}
+			for _, m in e.s.members or {e.owner} do
+				if m.Parent == Players and m:GetAttribute("MatchId") == nil then table.insert(members, m) end
+			end
+			if #members == 0 then continue end
+			local t = room[1] >= room[2] and 1 or 2
+			if room[t] < #members then t = t == 1 and 2 or 1 end
+			if room[t] >= #members then
+				for _, m in members do table.insert(teams[t], m) end
+				room[t] -= #members
+				table.insert(owners, e.owner)
+			end
+		end
+		if #owners == 0 then continue end
+		-- out of the global queue first, so no other server can pick them now
+		for _, o in owners do stopSearch(o, true) end
+		task.spawn(function()
+			for _, team in teams do for _, p in team do status(p, "Found", {Mode = mode}) end end
+			task.wait(1.2)
+			for _, team in teams do for _, p in team do status(p, "Idle") end end
+			local t1, t2 = {}, {}
+			local function free(p) return p.Parent == Players and p:GetAttribute("MatchId") == nil and not pendingTeleport[p] and not searchOwner[p] end
+			for _, p in teams[1] do if free(p) then table.insert(t1, p) end end
+			for _, p in teams[2] do if free(p) then table.insert(t2, p) end end
+			if #t1 + #t2 == 0 then return end
+			local ok, started = pcall(function() return StartMatchHook:Invoke(t1, t2, {size - #t1, size - #t2}) end)
+			if not (ok and started) then
+				for _, o in owners do if o.Parent == Players and Parties.IsLeader(o) then startSearch(o, mode) end end
+			end
+		end)
+	end
+end
+
 task.spawn(function()
 	while true do
 		task.wait(CHECK_EVERY)
@@ -344,6 +407,9 @@ task.spawn(function()
 			local ok, err = pcall(tryMatch, q[1], q[2])
 			if not ok then warn("[GlobalMatchmaking] " .. tostring(err)) end
 		end
+		-- (after the real matchmaker: real players always get matched first)
+		local okB, errB = pcall(botFill)
+		if not okB then warn("[GlobalMatchmaking] bots: " .. tostring(errB)) end
 	end
 end)
 

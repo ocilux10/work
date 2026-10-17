@@ -272,6 +272,15 @@ local function giveBalloon(char)
 	b.Parent = char
 end
 
+-- BOTS: BotService asks for a balloon in a bot's hand (same as a player's, default skin)
+local GiveBalloon = script:FindFirstChild("GiveBalloon") or Instance.new("BindableFunction")
+GiveBalloon.Name = "GiveBalloon"
+GiveBalloon.OnInvoke = function(model)
+	if typeof(model) == "Instance" and model:IsA("Model") then giveBalloon(model) end
+	return true
+end
+GiveBalloon.Parent = script
+
 local function setHeldVisible(char, visible)
 	local b = char and char:FindFirstChild("HeldBalloon")
 	if not b then return end
@@ -289,8 +298,16 @@ end
 --                                                 player:SetAttribute("MatchId", "<same id for both fighters>")
 --   and clears MatchId (set it to nil) when the match ends.
 -- In the practice arena nobody has a MatchId, so players can't damage each other.
-local function canDamage(attacker, victimPlayer)
-	if not victimPlayer then return true end
+-- BOTS (ServerStorage > Bots): a bot in a match is hurt like a player - same MatchId, other team only.
+local function canDamage(attacker, victimPlayer, victimModel)
+	if not victimPlayer then
+		if victimModel and victimModel:GetAttribute("IsBot") and victimModel:GetAttribute("MatchId") ~= nil then
+			if attacker:GetAttribute("MatchId") ~= victimModel:GetAttribute("MatchId") then return false end
+			local ta = attacker:GetAttribute("MatchTeam")
+			return ta == nil or ta ~= victimModel:GetAttribute("MatchTeam")
+		end
+		return true
+	end
 	if victimPlayer == attacker then return false end
 	local a, v = attacker:GetAttribute("MatchId"), victimPlayer:GetAttribute("MatchId")
 	if a == nil or a ~= v then return false end
@@ -303,7 +320,7 @@ end
 local function applyDamage(attacker, hum, model, damage, hitPos, isHead, isMelee, dir)
 	if hum.Health <= 0 then return end
 	local victimName, victimPlayer = displayName(model)
-	if not canDamage(attacker, victimPlayer) then return end
+	if not canDamage(attacker, victimPlayer, model) then return end
 	if Config.TeamCheck and victimPlayer and attacker.Team and victimPlayer.Team == attacker.Team and not attacker.Neutral then
 		return
 	end
@@ -330,18 +347,19 @@ local function applyDamage(attacker, hum, model, damage, hitPos, isHead, isMelee
 		if isMelee then table.insert(tags, {name = "MELEE", xp = Config.XP.Melee}) end
 		table.insert(tags, {name = "KILL", xp = Config.XP.Kill})
 		-- XP only counts in real matches: dummy / practice kills show +0 XP
-		local realKill = victimPlayer ~= nil and attacker:GetAttribute("MatchId") ~= nil
+		local isBot = model:GetAttribute("IsBot") == true
+		local realKill = (victimPlayer ~= nil or isBot) and attacker:GetAttribute("MatchId") ~= nil
 		if not realKill then
 			for _, t in tags do t.xp = 0 end
 		end
 		local totalXP = 0
 		for _, t in tags do totalXP += t.xp end
 		Effect:FireClient(attacker, "Kill", {victim = victimName, tags = tags, distance = distance, victimModel = model,
-			victimUserId = victimPlayer and victimPlayer.UserId or nil})
+			victimUserId = victimPlayer and victimPlayer.UserId or (isBot and model:GetAttribute("BotUserId")) or nil})
 		-- KILL FEED: in a match only the players in that match see it; in the practice arena only the killer does
 		local feed = {killer = NameBadge.Of(attacker), victim = victimName, head = isHead, melee = isMelee,
 			distance = distance, longShot = longShot, xp = totalXP, jump = airborne == true,
-			killerId = attacker.UserId, victimId = victimPlayer and victimPlayer.UserId or nil}
+			killerId = attacker.UserId, victimId = victimPlayer and victimPlayer.UserId or (isBot and model:GetAttribute("BotUserId")) or nil}
 		local matchId = attacker:GetAttribute("MatchId")
 		if matchId ~= nil then
 			for _, pl in Players:GetPlayers() do
@@ -380,7 +398,7 @@ SwingRemote.OnServerEvent:Connect(function(player, look)
 	local best, bestModel, bestDist, bestPart
 	for _, part in parts do
 		local hum, model = humanoidFromPart(part)
-		if hum and hum.Health > 0 and model ~= char and canDamage(player, Players:GetPlayerFromCharacter(model)) then
+		if hum and hum.Health > 0 and model ~= char and canDamage(player, Players:GetPlayerFromCharacter(model), model) then
 			local d = (part.Position - head.Position).Magnitude
 			if not bestDist or d < bestDist then
 				best, bestModel, bestDist, bestPart = hum, model, d, part
@@ -404,8 +422,11 @@ local history = {} -- [model] = { {t, rootCF}, ... } oldest first
 
 RunService.Heartbeat:Connect(function()
 	local t = os.clock()
-	for _, p in Players:GetPlayers() do
-		local char = p.Character
+	local chars = {}
+	for _, p in Players:GetPlayers() do if p.Character then table.insert(chars, p.Character) end end
+	local botFolder = workspace:FindFirstChild("Bots")
+	if botFolder then for _, m in botFolder:GetChildren() do table.insert(chars, m) end end
+	for _, char in chars do
 		local root = char and char:FindFirstChild("HumanoidRootPart")
 		if root then
 			local h = history[char]
@@ -486,7 +507,7 @@ ShootRemote.OnServerEvent:Connect(function(player, origin, dir, hitPart, hitPos)
 		if hum and hum.Health > 0 and model ~= char then
 			local reach = hitPart.Size.Magnitude / 2 + Config.HitTolerance
 			local closeEnough = (hitPart.Position - hitPos).Magnitude <= reach
-			if not closeEnough and Players:GetPlayerFromCharacter(model) then
+			if not closeEnough and (Players:GetPlayerFromCharacter(model) or model:GetAttribute("IsBot")) then
 				-- lag compensation: check where the target was when the shooter saw them
 				local ok, ping = pcall(function() return player:GetNetworkPing() end)
 				local back = math.clamp((ok and ping or 0.1) + INTERP_DELAY, 0, 0.6)

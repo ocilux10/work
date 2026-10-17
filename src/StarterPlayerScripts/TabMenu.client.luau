@@ -36,12 +36,16 @@ end
 
 local function setText(o, t) if o and (o:IsA("TextLabel") or o:IsA("TextButton")) then o.Text = t end end
 
+-- BOTS: ReplicatedStorage > Matchmaking > BotTags has one Configuration per bot with the same attributes as a player
+local function userIdOf(p) return p:IsA("Player") and p.UserId or (p:GetAttribute("BotUserId") or 1) end
+local function nameOf(p) return p:IsA("Player") and NameBadge.Of(p) or (p:GetAttribute("BotName") or p.Name) end
+
 local function fillRow(row, p, mine)
 	local sb = scoreboard()
 	local tile = row:FindFirstChild("Tile")
 	local head = tile and tile:FindFirstChild("Headshot")
 	if head and head:IsA("ImageLabel") and head.Image == "" then
-		head.Image = ("rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150"):format(p.UserId)
+		head.Image = ("rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150"):format(userIdOf(p))
 	end
 	setText(tile and tile:FindFirstChild("Level"), tostring(p:GetAttribute("Level") or 1))
 	local streak = tile and tile:FindFirstChild("Streak")
@@ -50,7 +54,7 @@ local function fillRow(row, p, mine)
 		streak.Text = (streak:FindFirstChildWhichIsA("ImageLabel", true) and "" or "\u{1F525}") .. ws
 		streak.Visible = ws > 0
 	end
-	setText(row:FindFirstChild("PlayerName"), NameBadge.Of(p))
+	setText(row:FindFirstChild("PlayerName"), nameOf(p))
 	local slot = row:FindFirstChild("DeviceSlot")
 	local device = p:GetAttribute("Device") or "PC"
 	if slot and slot:GetAttribute("Shown") ~= device then
@@ -90,7 +94,10 @@ local function refresh()
 	end
 	local myMatch, myTeam = player:GetAttribute("MatchId"), player:GetAttribute("MatchTeam")
 	local present = {}
-	for _, p in Players:GetPlayers() do
+	local everyone = Players:GetPlayers()
+	local botTags = RS:FindFirstChild("Matchmaking") and RS.Matchmaking:FindFirstChild("BotTags")
+	if botTags then for _, b in botTags:GetChildren() do table.insert(everyone, b) end end
+	for _, p in everyone do
 		if myMatch and p:GetAttribute("MatchId") == myMatch then
 			present[p] = true
 			local row = rows[p]
