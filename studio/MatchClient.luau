@@ -1035,20 +1035,31 @@ local function seenStep(who)
 		end
 	end
 end
+-- BOTS (ServerStorage > Bots) can be watched too: they're the bot's body Model (in workspace > Bots), not a Player
+local function charOf(x) if x:IsA("Player") then return x.Character end return x end
+local function whoName(x) if x:IsA("Player") then return NameBadge.Of(x) end return x:GetAttribute("BotName") or x.Name end
+local function matchPeople()
+	local list = Players:GetPlayers()
+	local bf = workspace:FindFirstChild("Bots")
+	for _, m in bf and bf:GetChildren() or {} do
+		if m:GetAttribute("MatchId") ~= nil and m:GetAttribute("MatchId") == player:GetAttribute("MatchId") then table.insert(list, m) end
+	end
+	return list
+end
 local function fpWatch(p)
 	if fpWho == p then return end
 	if not fpWho then SpecActions:Fire("SpectateStart") end
 	fpWho = p
-	if SpectatingWho then SpectatingWho:FireServer(p.UserId) end
+	if SpectatingWho then SpectatingWho:FireServer(p:IsA("Player") and p.UserId or nil) end
 	seenClear()
 	local l = p:GetAttribute("AimLook")
-	local head = p.Character and p.Character:FindFirstChild("Head")
+	local head = charOf(p) and charOf(p):FindFirstChild("Head")
 	fpLook = typeof(l) == "Vector3" and l or (head and head.CFrame.LookVector) or Vector3.new(0, 0, -1)
-	SpecActions:Fire("SpectateTarget", p.UserId)
+	SpecActions:Fire("SpectateTarget", p:IsA("Player") and p.UserId or p)
 	RunService:UnbindFromRenderStep("MatchSpectateCam")
 	RunService:BindToRenderStep("MatchSpectateCam", Enum.RenderPriority.Camera.Value + 2, function(dt)
 		local who = fpWho
-		local h = who and who.Character and who.Character:FindFirstChild("Head")
+		local h = who and charOf(who) and charOf(who):FindFirstChild("Head")
 		if not h then return end
 		local cam = workspace.CurrentCamera
 		if cam.CameraType ~= Enum.CameraType.Scriptable then cam.CameraType = Enum.CameraType.Scriptable end
@@ -1100,10 +1111,10 @@ local function updateSpectate()
 			-- nearest to where you died (your killer, most of the time)
 			local target, mate, enemy, enemyDist
 			local ffa = isFFA()
-			for _, p in Players:GetPlayers() do
+			for _, p in matchPeople() do
 				if p ~= player and p:GetAttribute("MatchId") == player:GetAttribute("MatchId") and not p:GetAttribute("Spectating") and not p:GetAttribute("MatchDead") then
-					local h = p.Character and p.Character:FindFirstChildOfClass("Humanoid")
-					local r = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+					local h = charOf(p) and charOf(p):FindFirstChildOfClass("Humanoid")
+					local r = charOf(p) and charOf(p):FindFirstChild("HumanoidRootPart")
 					if h and h.Health > 0 then
 						if not ffa and p:GetAttribute("MatchTeam") == myTeam() then
 							if not mate then mate = {p = p, h = h} end
@@ -1116,7 +1127,7 @@ local function updateSpectate()
 			end
 			-- (keep watching the same person while they're alive, so it doesn't flick between enemies)
 			local cur = currentSpec
-			local curH = cur and cur.Character and cur.Character:FindFirstChildOfClass("Humanoid")
+			local curH = cur and cur.Parent and charOf(cur) and charOf(cur):FindFirstChildOfClass("Humanoid")
 			if cur and curH and curH.Health > 0 and not cur:GetAttribute("MatchDead") and (not mate or (not ffa and cur:GetAttribute("MatchTeam") == myTeam())) then
 				target = {p = cur, h = curH}
 			else
@@ -1126,7 +1137,7 @@ local function updateSpectate()
 			if target then
 				fpWatch(target.p)
 				label = get(Center(), "Spectating")
-				setText(label, "SPECTATING " .. string.upper(NameBadge.Of(target.p)))
+				setText(label, "SPECTATING " .. string.upper(whoName(target.p)))
 				show(label, true)
 			end
 			-- re-pick the target every 0.25s (someone who dies is swapped straight away)
@@ -1238,9 +1249,9 @@ local function watchDeath(char)
 		-- (death camera on: you stay round your body - no cutting to spectating. Started from here too: Died alone
 		--  doesn't always reach this screen when the server does the kill)
 		if Config.DeathCam ~= false then freezeDeathCam() return end
-		for _, p in Players:GetPlayers() do
+		for _, p in matchPeople() do
 			if p ~= player and p:GetAttribute("MatchId") == player:GetAttribute("MatchId") and not p:GetAttribute("MatchDead") then
-				local h = p.Character and p.Character:FindFirstChildOfClass("Humanoid")
+				local h = charOf(p) and charOf(p):FindFirstChildOfClass("Humanoid")
 				if h and h.Health > 0 then
 					task.delay(Config.SpectateAfterDeath or 0.1, function()
 						if player:GetAttribute("MatchId") ~= nil and not player:GetAttribute("MatchEnded") and hum.Health <= 0 then

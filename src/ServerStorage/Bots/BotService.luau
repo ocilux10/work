@@ -303,6 +303,11 @@ local function think(bot, dt)
 		else moveDir = side * bot.StrafeDir + toward * (math.random() - 0.5) * 0.3 end
 		if moveDir.Magnitude > 0 then moveDir = moveDir.Unit end
 		speed = bot.Sprinting and (MoveCfg.SprintSpeed or 26) or (MoveCfg.WalkSpeed or 16)
+		-- where it's looking (spectators watching through its eyes follow this, like a player's AimLook)
+		local myHead, theirHead = bot.Model:FindFirstChild("Head"), ec and ec:FindFirstChild("Head")
+		if myHead and theirHead and (theirHead.Position - myHead.Position).Magnitude > 0.1 then
+			bot.Model:SetAttribute("AimLook", (theirHead.Position - myHead.Position).Unit)
+		end
 		-- face them (how fast = AimTurnSpeed)
 		local want = CFrame.lookAt(root.Position, root.Position + toward)
 		bot.Align.CFrame = bot.Align.CFrame:Lerp(want.Rotation, math.min(1, dt * D.AimTurnSpeed))
