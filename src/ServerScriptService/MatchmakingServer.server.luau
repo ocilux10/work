@@ -94,7 +94,7 @@ local function now() return workspace:GetServerTimeNow() end
 local function infoOf(p)
 	-- a bot, or a bot that's only on the pad board so far ({Name, UserId, Level})
 	if typeof(p) ~= "Instance" then
-		return {UserId = p.UserId, Name = p.Name, Level = p.Level or (p.Identity and p.Identity.Level) or 1, Device = "PC", Streak = 0}
+		return {UserId = p.UserId, Name = p.Name, Level = p.Level or (p.Identity and p.Identity.Level) or 1, Device = "PC", Streak = 0, Bot = true}
 	end
 	return {
 		UserId = p.UserId,

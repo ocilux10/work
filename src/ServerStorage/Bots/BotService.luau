@@ -88,32 +88,54 @@ local function buildModel(name, userId)
 	return model
 end
 
------------------------------------------------------------- ANIMATIONS (the same ones players use)
+------------------------------------------------------------ ANIMATIONS (exactly what a player has)
+-- In a fight (BalloonCombatClient + Movement): FightIdle + ItemHold loop the whole time (BalloonCombat > Config >
+-- Animations: their own priority / speed / fade), walking / jumping / falling = Roblox's Animate with the MovementConfig
+-- ids (Core priority), sprinting = RunFight. Throw / Swing play on attacks.
+-- In the lobby: MovementConfig Idle, no balloon.
 local function loadTracks(hum, lobby)
 	local animator = hum:FindFirstChildOfClass("Animator") or Instance.new("Animator", hum)
 	local t = {}
 	local function load(id, looped, prio)
 		if type(id) ~= "string" or not id:match("%d") then return nil end
-		local a = Instance.new("Animation") a.AnimationId = id
+		local a = Instance.new("Animation") a.AnimationId = (id:gsub("%s", ""))
 		local ok, tr = pcall(function() return animator:LoadAnimation(a) end)
 		if not ok or not tr then return nil end
 		tr.Looped = looped tr.Priority = prio
 		return tr
 	end
 	local A, C = MoveCfg.Anims or {}, Combat.Animations or {}
-	local function cid(n) return type(C[n]) == "table" and C[n].Id or (type(C[n]) == "string" and C[n]) or nil end
-	-- (in the lobby: the normal idle a player has there, not the fighting one)
-	t.Idle = load((not lobby and cid("FightIdle")) or A.Idle, true, Enum.AnimationPriority.Idle)
-	t.Walk = load(A.Walk, true, Enum.AnimationPriority.Movement)
-	t.Run = load(A.RunFight or A.Run, true, Enum.AnimationPriority.Movement)
-	t.Jump = load(A.Jump, false, Enum.AnimationPriority.Movement)
-	t.Fall = load(A.Fall, true, Enum.AnimationPriority.Movement)
+	local function combat(name, looped)
+		local c = C[name]
+		if type(c) ~= "table" then return nil end
+		local tr = load(c.Id, looped, c.Priority or Enum.AnimationPriority.Action)
+		if tr then t.Meta[name] = {Fade = c.Fade, Speed = c.Speed} end
+		return tr
+	end
+	t.Meta = {}
+	local CORE = Enum.AnimationPriority.Core
+	t.Walk = load(A.Walk, true, CORE)
+	t.Jump = load(A.Jump, false, CORE)
+	t.Fall = load(A.Fall, true, CORE)
 	t.Slide = load(A.Slide, true, Enum.AnimationPriority.Action)
 	t.Climb = load(A.Climb, false, Enum.AnimationPriority.Action)
-	t.Hold = not lobby and load(cid("ItemHold"), true, Enum.AnimationPriority.Action) or nil
-	t.Throw = load(cid("Throw"), false, Enum.AnimationPriority.Action2)
-	t.Swing = load(cid("Swing") or cid("Melee"), false, Enum.AnimationPriority.Action2)
+	if lobby then
+		t.Idle = load(A.Idle, true, CORE)
+		t.Run = load(A.Run, true, Enum.AnimationPriority.Movement)
+		return t
+	end
+	t.Idle = load(A.Idle, true, CORE) -- (under FightIdle, like a player's Animate idle)
+	t.Run = load((A.RunFight ~= "" and A.RunFight) or A.Run, true, Enum.AnimationPriority.Movement)
+	t.FightIdle = combat("FightIdle", true)
+	t.Hold = combat("ItemHold", true)
+	t.Throw = combat("Throw", false)
+	t.Swing = combat("Swing", false)
 	return t
+end
+local function playCombat(bot, name)
+	local tr = bot.Tracks[name == "ItemHold" and "Hold" or name]
+	local m = bot.Tracks.Meta and bot.Tracks.Meta[name] or {}
+	if tr then tr:Play(m.Fade or 0.05, 1, m.Speed or 1) end
 end
 
 ------------------------------------------------------------ WHO TO FIGHT
@@ -187,7 +209,7 @@ local function throwAt(bot, c, D)
 	local torso = c:FindFirstChild("UpperTorso") or c:FindFirstChild("HumanoidRootPart")
 	local bHead = bot.Model:FindFirstChild("Head")
 	if not (head and torso and bHead) then return end
-	if bot.Tracks.Throw then bot.Tracks.Throw:Play(0.05) end
+	playCombat(bot, "Throw")
 	task.wait(0.12) -- (a short wind-up, so you can see it coming)
 	if not bot.Alive or not c.Parent or locked(bot, true) then return end
 	local held = bot.Model:FindFirstChild("HeldBalloon")
@@ -219,7 +241,7 @@ local function throwAt(bot, c, D)
 	end
 end
 local function swingAt(bot, c, D)
-	if bot.Tracks.Swing then bot.Tracks.Swing:Play(0.05) end
+	playCombat(bot, "Swing")
 	if Effect then Effect:FireAllClients("Swing", {player = {Character = bot.Model}}) end
 	task.wait(0.1)
 	if not bot.Alive or not c.Parent or locked(bot, false) then return end
@@ -318,7 +340,7 @@ local function think(bot, dt)
 		local h = obstacleAhead(bot, moveDir)
 		if h then
 			if h <= 6.5 then
-				hum.Jump = true
+				hum.Jump = true if bot.Tracks.Jump then bot.Tracks.Jump:Play(0.1) end
 			elseif D.Climb and h <= (D.ClimbMax or 16) and now >= (bot.NextClimb or 0) then
 				bot.NextClimb = now + 1
 				if bot.Tracks.Climb then bot.Tracks.Climb:Play(0.05) end
@@ -328,7 +350,7 @@ local function think(bot, dt)
 				moveDir = Vector3.new(-moveDir.Z, 0, moveDir.X) * (bot.StrafeDir or 1)
 			end
 		elseif math.random() < D.JumpChance * dt and er then
-			hum.Jump = true
+			hum.Jump = true if bot.Tracks.Jump then bot.Tracks.Jump:Play(0.1) end
 		end
 	end
 	hum.WalkSpeed = speed
@@ -339,8 +361,8 @@ local function think(bot, dt)
 	if bot.SlideUntil and now < bot.SlideUntil then playMove(bot, "Slide")
 	elseif hum.FloorMaterial == Enum.Material.Air and v.Y < -3 then playMove(bot, "Fall")
 	elseif fs > 0.8 then
-		if fs > (MoveCfg.WalkSpeed or 16) + 1 then playMove(bot, "Run", math.clamp(fs / (MoveCfg.SprintSpeed or 26), 0.6, 1.5))
-		else playMove(bot, "Walk", math.clamp(fs / (MoveCfg.WalkSpeed or 16), 0.5, 1.5)) end
+		if fs > (MoveCfg.WalkSpeed or 16) + 1 then playMove(bot, "Run", math.clamp(fs / (MoveCfg.SprintSpeed or 26), 0.7, 1.4))
+		else playMove(bot, "Walk", math.clamp(fs / 16, 0.5, 1.5)) end
 	else playMove(bot, "Idle") end
 end
 
@@ -423,30 +445,10 @@ function M.Place(bot, cf, lobby)
 	hum.Health = hum.MaxHealth
 	bot.Tracks = loadTracks(hum, lobby)
 	if bot.Tracks.Idle then bot.Tracks.Idle:Play() end
+	if bot.Tracks.FightIdle then playCombat(bot, "FightIdle") end
 	if lobby then
 		bot.Alive = true
 		return true
-	end
-	-- the balloon arm stays still like a player's (players' screens hold their own arm still; a bot's is done here):
-	-- the right arm's joints become welds, so the walk / idle animations can't swing the balloon around
-	local armParts = {RightUpperArm = true, RightLowerArm = true, RightHand = true}
-	for _, m in model:GetDescendants() do
-		if m:IsA("Motor6D") and m.Part0 and m.Part1 and armParts[m.Part1.Name] then
-			local w = Instance.new("Weld")
-			w.Name = m.Name -- (BalloonCombatServer still finds "RightShoulder" if it raises the arm)
-			w.Part0, w.Part1, w.C0, w.C1 = m.Part0, m.Part1, m.C0, m.C1
-			local parent = m.Parent
-			m:Destroy()
-			w.Parent = parent
-		elseif m:IsA("AnimationConstraint") and m.Attachment0 and m.Attachment1 and m.Attachment1.Parent
-			and armParts[m.Attachment1.Parent.Name] then
-			-- NEW AVATAR JOINTS (no Motor6Ds): the animated joint goes off and a rigid one holds the arm in its rest pose
-			local r = Instance.new("RigidConstraint")
-			r.Name = m.Name .. "Hold"
-			r.Attachment0, r.Attachment1 = m.Attachment0, m.Attachment1
-			r.Parent = m.Parent
-			m.Enabled = false
-		end
 	end
 	-- a balloon in its hand, like a player's
 	local bcs = SSS:FindFirstChild("BalloonCombatServer")
@@ -457,15 +459,13 @@ function M.Place(bot, cf, lobby)
 	else
 		warn("[Bots] BalloonCombatServer has no GiveBalloon - bots won't hold a balloon (use the updated BalloonCombatServer)")
 	end
-	if bot.Tracks.Hold then bot.Tracks.Hold:Play(0.2) end
+	playCombat(bot, "ItemHold") -- (raises the arm, like a player's; every screen keeps the balloon upright in the fist)
 	bot.Alive = true
 	bot.DiedConn = hum.Died:Connect(function()
 		if not bot.Alive or bot.Model ~= model then return end
 		bot.Alive = false
 		hum:Move(Vector3.zero)
 		align.Enabled = false
-		-- (the stiff balloon arm goes limp with the rest of the body)
-		for _, r in model:GetDescendants() do if r:IsA("RigidConstraint") and r.Name:match("Hold$") then r:Destroy() end end
 		M.Died:Fire(bot)
 		if bot.DespawnOnDeath then
 			task.delay(bot.DespawnAfter or 4, function() if bot.Model == model and not bot.Alive then M.Despawn(bot) end end)

@@ -947,7 +947,8 @@ local function buildHUD(teams)
 				setText(c:FindFirstChild("Level"), tostring(info.Level or 1))
 				show(c:FindFirstChild("Dead"), false)
 				-- LEFT THE MATCH (ScoreCardTemplate > Left: dark overlay + disconnect icon, like the skull)
-				local gone = Players:GetPlayerByUserId(info.UserId) == nil
+				-- (bots are never "in the server" as players - they don't leave)
+				local gone = not info.Bot and Players:GetPlayerByUserId(info.UserId) == nil
 				show(c:FindFirstChild("Left"), gone)
 				if gone then show(c:FindFirstChild("Dead"), false) end
 				c.Parent = holder
@@ -1937,8 +1938,19 @@ highlightEnemies = function(on)
 	table.clear(enemyHighlights)
 	if not on then return end
 	local myMatch, myTeamId = player:GetAttribute("MatchId"), player:GetAttribute("MatchTeam")
+	local enemies = {}
 	for _, other in Players:GetPlayers() do
 		if other ~= player and other:GetAttribute("MatchId") == myMatch and other:GetAttribute("MatchTeam") ~= myTeamId and other.Character then
+			table.insert(enemies, other.Character)
+		end
+	end
+	-- (match bots on the other team too: ServerStorage > Bots)
+	local bf = workspace:FindFirstChild("Bots")
+	for _, m in bf and bf:GetChildren() or {} do
+		if m:GetAttribute("MatchId") == myMatch and m:GetAttribute("MatchTeam") ~= myTeamId then table.insert(enemies, m) end
+	end
+	for _, enemyChar in enemies do
+		do
 			-- THE LOOK: MatchUI > Templates > EnemyHighlight (else the colour attributes on MatchUI)
 			local tpl = gui:FindFirstChild("Templates") and gui.Templates:FindFirstChild("EnemyHighlight")
 			local h = tpl and tpl:Clone() or Instance.new("Highlight")
@@ -1952,8 +1964,8 @@ highlightEnemies = function(on)
 				h.OutlineTransparency = 0
 				h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
 			end
-			h.Adornee = other.Character
-			h.Parent = other.Character
+			h.Adornee = enemyChar
+			h.Parent = enemyChar
 			table.insert(enemyHighlights, h)
 		end
 	end
@@ -1963,6 +1975,24 @@ end
 -- the last few seconds before the match-winning kill, seen through the killer's eyes, for everyone in the match.
 -- Look: MatchUI > KillReplay (Title / Sub / TopBar / BottomBar). Settings: Matchmaking > Config > KillReplay / KillReplayTime
 local BalloonFolder = RS:FindFirstChild("BalloonCombat")
+
+-- everyone's real body in the replay: players + the match bots (ServerStorage > Bots)
+local function liveBodies()
+	local list = {}
+	for _, pl in Players:GetPlayers() do if pl.Character then table.insert(list, pl.Character) end end
+	local bf = workspace:FindFirstChild("Bots")
+	for _, m in bf and bf:GetChildren() or {} do table.insert(list, m) end
+	return list
+end
+local function bodyOf(userId)
+	local p = Players:GetPlayerByUserId(userId)
+	if p then return p.Character end
+	local bf = workspace:FindFirstChild("Bots")
+	for _, m in bf and bf:GetChildren() or {} do
+		if m:GetAttribute("BotUserId") == userId and m:GetAttribute("MatchId") == player:GetAttribute("MatchId") then return m end
+	end
+	return nil
+end
 
 local function makeGhost(char)
 	char.Archivable = true
@@ -2069,8 +2099,8 @@ function handlers.KillReplay(data)
 	local ghostOf = {} -- [UserId] = ghost model
 	local killerFrames
 	for _, person in data.People do
-		local p = Players:GetPlayerByUserId(person.UserId)
-		local ghost = p and p.Character and makeGhost(p.Character)
+		local body = bodyOf(person.UserId)
+		local ghost = body and makeGhost(body)
 		if ghost then
 			ghost.Parent = folder
 			local isKiller = person.UserId == data.Killer
@@ -2135,11 +2165,9 @@ function handlers.KillReplay(data)
 		clockT = math.min(clockT + dt * ((clockT >= slowFrom and clockT < slowTo) and slow or 1), length)
 		local t = clockT
 		-- real characters stay hidden (the ghosts stand in for them)
-		for _, pl in Players:GetPlayers() do
-			if pl.Character then
-				for _, d in pl.Character:GetDescendants() do
-					if d:IsA("BasePart") or d:IsA("Decal") then d.LocalTransparencyModifier = 1 end
-				end
+		for _, body in liveBodies() do
+			for _, d in body:GetDescendants() do
+				if d:IsA("BasePart") or d:IsA("Decal") then d.LocalTransparencyModifier = 1 end
 			end
 		end
 		-- everyone else is shown where the KILLER saw them (they reached the killer's screen late: the killer's ping
@@ -2222,11 +2250,9 @@ function handlers.KillReplay(data)
 	end
 	show(rp, false)
 	folder:Destroy()
-	for _, pl in Players:GetPlayers() do
-		if pl.Character then
-			for _, d in pl.Character:GetDescendants() do
-				if d:IsA("BasePart") or d:IsA("Decal") then d.LocalTransparencyModifier = 0 end
-			end
+	for _, body in liveBodies() do
+		for _, d in body:GetDescendants() do
+			if d:IsA("BasePart") or d:IsA("Decal") then d.LocalTransparencyModifier = 0 end
 		end
 	end
 	action("ReplayEnd")

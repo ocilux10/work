@@ -1000,6 +1000,9 @@ RunService.PreRender:Connect(function()
 	-- (the tutorial's Bacon holds his like a player too)
 	local tb = workspace:FindFirstChild("TutorialBots")
 	if tb then for _, m in tb:GetChildren() do table.insert(chars, m) end end
+	-- (and the match bots: ServerStorage > Bots)
+	local bf = workspace:FindFirstChild("Bots")
+	if bf then for _, m in bf:GetChildren() do table.insert(chars, m) end end
 	local rs = workspace:FindFirstChild("ReplaySessions")
 	if rs then
 		for _, sess in rs:GetChildren() do
