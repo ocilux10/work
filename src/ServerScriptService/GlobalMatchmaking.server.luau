@@ -34,19 +34,6 @@ ClientReady.Parent = Remotes
 local Hooks = script.Parent:WaitForChild("MatchmakingServer"):WaitForChild("Hooks")
 local StartMatchHook = Hooks:WaitForChild("StartMatch")
 
--- BOTS (ServerStorage > Bots > BotConfig): a search that finds nobody for BotConfig.FillAfter seconds starts a match
--- right here with bots in the empty places (real players found before then always come first)
-local BotCfg
-do
-	local folder = game:GetService("ServerStorage"):FindFirstChild("Bots")
-	local mod = folder and folder:FindFirstChild("BotConfig")
-	if mod then
-		local ok, res = pcall(require, mod)
-		if ok then BotCfg = res end
-	end
-end
-local function botFillOn() return BotCfg ~= nil and BotCfg.Enabled == true and BotCfg.FillMatchmaking == true end
-
 local G = Config.Global or {}
 local MODES = {}
 for _, m in G.Modes or {"1v1", "2v2", "3v3", "4v4"} do MODES[m] = tonumber(m:match("^(%d)v")) end
@@ -55,16 +42,20 @@ local ENTRY_LIFE = G.EntryLife or 60
 local JOIN_TIMEOUT = G.JoinTimeout or 30
 
 local IS_STUDIO = RunService:IsStudio()
-local IS_MATCH_SERVER = game.PrivateServerId ~= "" and game.PrivateServerOwnerId == 0
+-- (a reserved server made for a match - NOT the tutorial's reserved server: ServerStorage > ServerKind)
+local ServerKind = require(game:GetService("ServerStorage"):WaitForChild("ServerKind"))
+local function isMatchServer() return ServerKind.IsMatchServer() end
 local PREFIX = IS_STUDIO and "Studio_" or ""
 local TOPIC_FOUND = PREFIX .. "MM_MatchFound"
 local TOPIC_ANNOUNCE = "MM_Announce"
 
 local function now() return workspace:GetServerTimeNow() end
-local function queueName(mode, region) return PREFIX .. "Q_" .. mode .. "_" .. region end
+-- RANKED: its own queues ("Q_R1v1_eu" ...), matched by Elo (ReplicatedStorage > RankConfig)
+local RankCfg = require(RS:WaitForChild("RankConfig"))
+local function queueName(mode, region, isRanked) return PREFIX .. "Q_" .. (isRanked and "R" or "") .. mode .. "_" .. region end
 local queues = {}
-local function queue(mode, region)
-	local n = queueName(mode, region)
+local function queue(mode, region, isRanked)
+	local n = queueName(mode, region, isRanked)
 	queues[n] = queues[n] or MemoryStoreService:GetSortedMap(n)
 	return queues[n]
 end
@@ -87,7 +78,7 @@ local function writeEntry(p, s)
 	local ok, err = pcall(function()
 		local ids = {}
 		for _, m in s.members or {p} do table.insert(ids, m.UserId) end
-		queue(s.mode, s.region):SetAsync(tostring(p.UserId), {job = game.JobId, t = s.since, ids = ids, party = s.party}, ENTRY_LIFE, s.since)
+		queue(s.mode, s.region, s.ranked):SetAsync(tostring(p.UserId), {job = game.JobId, t = s.since, ids = ids, party = s.party, elo = s.elo}, ENTRY_LIFE, s.since)
 	end)
 	if not ok then warn("[GlobalMatchmaking] queue write: " .. tostring(err)) end
 	return ok
@@ -103,11 +94,12 @@ local function stopSearch(p, silent)
 		searchOwner[m] = nil
 		if m.Parent == Players then
 			m:SetAttribute("Searching", nil)
+			m:SetAttribute("SearchingRanked", nil)
 			if not silent then status(m, "Idle") end
 		end
 	end
 	task.spawn(function()
-		pcall(function() queue(s.mode, s.region):RemoveAsync(tostring(owner.UserId)) end)
+		pcall(function() queue(s.mode, s.region, s.ranked):RemoveAsync(tostring(owner.UserId)) end)
 	end)
 end
 -- found a match: forget the search without touching the queue (the matchmaker already took the entry out)
@@ -116,10 +108,10 @@ local function clearSearch(p)
 	local s = searching[owner]
 	if s then
 		searching[owner] = nil
-		for _, m in s.members or {owner} do searchOwner[m] = nil if m.Parent == Players then m:SetAttribute("Searching", nil) end end
+		for _, m in s.members or {owner} do searchOwner[m] = nil if m.Parent == Players then m:SetAttribute("Searching", nil) m:SetAttribute("SearchingRanked", nil) end end
 	end
 	searchOwner[p] = nil
-	if p.Parent == Players then p:SetAttribute("Searching", nil) end
+	if p.Parent == Players then p:SetAttribute("Searching", nil) p:SetAttribute("SearchingRanked", nil) end
 end
 local function sinceOfSearch(p)
 	local s = searching[searchOwner[p] or p]
@@ -131,9 +123,20 @@ local function canSearch(p)
 	return true
 end
 
-local function startSearch(p, mode, since)
+local function startSearch(p, mode, since, isRanked)
 	if not MODES[mode] or not canSearch(p) then return end
+	isRanked = isRanked == true
 	local members = Parties.Members(p)
+	if isRanked then
+		if not table.find(RankCfg.Modes or {}, mode) then return end
+		-- everyone in the party needs the ranked level
+		for _, m in members do
+			if (m:GetAttribute("Level") or 1) < (RankCfg.UnlockLevel or 0) then
+				status(p, "Notice", {Title = "Ranked", Text = (m == p and "You need" or (m.DisplayName .. " needs")) .. " level " .. RankCfg.UnlockLevel .. " to play ranked."})
+				return
+			end
+		end
+	end
 	if #members > 1 then
 		if not Parties.IsLeader(p) then
 			status(p, "Notice", {Title = "Party", Text = "Only the party leader can search for a match."})
@@ -151,12 +154,19 @@ local function startSearch(p, mode, since)
 		end
 	end
 	for _, m in members do stopSearch(m, true) end
-	local s = {mode = mode, region = Regions.ForPlayer(p), since = since or now(), members = members, party = Parties.Info(p)}
+	local s = {mode = mode, region = Regions.ForPlayer(p), since = since or now(), members = members, party = Parties.Info(p), ranked = isRanked or nil}
+	if isRanked then
+		-- a party searches as its HIGHEST Elo player
+		local best = 0
+		for _, m in members do best = math.max(best, m:GetAttribute("Elo") or 0) end
+		s.elo = best
+	end
 	searching[p] = s
 	for _, m in members do
 		searchOwner[m] = p
 		m:SetAttribute("Searching", mode)
-		status(m, "Searching", {Mode = mode, Since = s.since, Region = s.region})
+		m:SetAttribute("SearchingRanked", isRanked or nil)
+		status(m, "Searching", {Mode = mode, Since = s.since, Region = s.region, Ranked = isRanked or nil})
 	end
 	task.spawn(function()
 		if not writeEntry(p, s) and searching[p] == s then
@@ -169,7 +179,7 @@ end
 SearchRemote.OnServerEvent:Connect(function(p, msg)
 	if typeof(msg) ~= "table" then return end
 	if msg.Action == "Start" and typeof(msg.Mode) == "string" then
-		startSearch(p, msg.Mode)
+		startSearch(p, msg.Mode, nil, msg.Ranked == true)
 	elseif msg.Action == "Cancel" then
 		stopSearch(p)
 	end
@@ -203,27 +213,42 @@ local function playerById(id) return Players:GetPlayerByUserId(tonumber(id) or 0
 
 local pendingTeleport = {} -- [player] = mode (to put them back in the queue if the teleport fails)
 
+-- A QUEUE PAD MATCH got them first (in this lobby, or sent off to one: LastSource / MatchId): the Play-menu search stops
+local function hookPadMatch(p)
+	local function check()
+		if (p:GetAttribute("MatchId") ~= nil or p:GetAttribute("LastSource") ~= nil) and searching[searchOwner[p] or p] then
+			stopSearch(p)
+		end
+	end
+	p:GetAttributeChangedSignal("MatchId"):Connect(check)
+	p:GetAttributeChangedSignal("LastSource"):Connect(check)
+end
+Players.PlayerAdded:Connect(hookPadMatch)
+for _, p in Players:GetPlayers() do hookPadMatch(p) end
+
 local function onMatchFound(data)
 	if type(data) ~= "table" or type(data.Teams) ~= "table" then return end
 	local mine = {}
 	for _, team in data.Teams do
 		for _, id in team do
 			local p = playerById(id)
-			-- (already playing a bot match that started a moment ago: stays in it)
-			if p and not (p:GetAttribute("MatchId") ~= nil and not p:GetAttribute("MatchEnded")) then table.insert(mine, p) end
+			if p then table.insert(mine, p) end
 		end
 	end
 	if #mine == 0 then return end
 	for _, p in mine do
 		clearSearch(p)
-		pendingTeleport[p] = data.Mode
-		status(p, "Found", {Mode = data.Mode})
+		pendingTeleport[p] = {data.Mode, data.Ranked}
+		status(p, "Found", {Mode = data.Mode, Ranked = data.Ranked})
+		-- (a queue pad lets go of them - MatchmakingServer canQueue; cleared again if this teleport fails)
+		p:SetAttribute("MatchFound", true)
+		task.delay(25, function() if p.Parent == Players then p:SetAttribute("MatchFound", nil) end end)
 	end
 	task.wait(1.2)
 	for _, p in mine do status(p, "Teleporting", {Mode = data.Mode}) end
 	local options = Instance.new("TeleportOptions")
 	options.ReservedServerAccessCode = data.Code
-	options:SetTeleportData({Match = {Id = data.Id, Mode = data.Mode, Teams = data.Teams, Parties = data.Parties}})
+	options:SetTeleportData({Match = {Id = data.Id, Mode = data.Mode, Teams = data.Teams, Parties = data.Parties, Ranked = data.Ranked}})
 	local list = {}
 	for _, p in mine do if p.Parent == Players then table.insert(list, p) end end
 	local ok, err = pcall(function() TeleportService:TeleportAsync(game.PlaceId, list, options) end)
@@ -231,18 +256,39 @@ local function onMatchFound(data)
 		warn("[GlobalMatchmaking] teleport failed: " .. tostring(err))
 		for _, p in list do
 			pendingTeleport[p] = nil
+			p:SetAttribute("MatchFound", nil)
 			status(p, "Cancelled", {Text = "Couldn't join the match. Rejoining matchmaking..."})
-			if Parties.IsLeader(p) then startSearch(p, data.Mode) end
+			if Parties.IsLeader(p) then startSearch(p, data.Mode, nil, data.Ranked) end
 		end
 	end
 end
 
+-- QUEUE PADS / DUELS (MatchmakingServer): send these two teams to a fresh match server -> true if the teleport started
+local ReserveHook = Hooks:FindFirstChild("ReserveMatch") or Instance.new("BindableFunction")
+ReserveHook.Name = "ReserveMatch"
+ReserveHook.Parent = Hooks
+ReserveHook.OnInvoke = function(team1, team2, mode)
+	if IS_STUDIO or isMatchServer() then return false end
+	local okR, code = pcall(function() return TeleportService:ReserveServer(game.PlaceId) end)
+	if not okR then warn("[GlobalMatchmaking] pad match reserve: " .. tostring(code)) return false end
+	local teams, parties = {{}, {}}, {}
+	for i, team in {team1, team2} do
+		for _, p in team do
+			table.insert(teams[i], tostring(p.UserId))
+			if Parties.IsLeader(p) and #Parties.Members(p) > 1 then table.insert(parties, Parties.Info(p)) end
+		end
+	end
+	local data = {Code = code, Mode = mode, Teams = teams, Id = HttpService:GenerateGUID(false):sub(1, 8), Parties = parties}
+	task.spawn(onMatchFound, data)
+	return true
+end
+
 TeleportService.TeleportInitFailed:Connect(function(p, result, err)
-	local mode = pendingTeleport[p]
-	if not mode then return end
+	local pend = pendingTeleport[p]
+	if not pend then return end
 	pendingTeleport[p] = nil
 	status(p, "Cancelled", {Text = "Couldn't join the match. Rejoining matchmaking..."})
-	if Parties.IsLeader(p) then startSearch(p, mode) end
+	if Parties.IsLeader(p) then startSearch(p, pend[1], nil, pend[2]) end
 end)
 
 if not IS_STUDIO then
@@ -269,16 +315,29 @@ local function takeLock(name)
 	return got
 end
 
-local function tryMatch(mode, region)
+local function tryMatch(mode, region, isRanked)
 	local size = MODES[mode]
 	local need = size * 2
-	local solo = IS_STUDIO and Config.SoloTest and not botFillOn() -- (with bots on, Studio tests get bots instead)
+	local solo = IS_STUDIO and Config.SoloTest
 	if solo then need = 1 end
-	local name = queueName(mode, region)
+	local name = queueName(mode, region, isRanked)
 	if not takeLock(name) then return end
-	local map = queue(mode, region)
+	local map = queue(mode, region, isRanked)
 	local ok, items = pcall(function() return map:GetRangeAsync(Enum.SortDirection.Ascending, 100) end)
 	if not ok or #items == 0 then return end
+	if isRanked then
+		-- only players close in Elo to the one who's waited longest; the gap allowed grows the longer they wait
+		local first = items[1].value
+		local anchorElo = type(first) == "table" and first.elo or 0
+		local waited = math.max(0, now() - (type(first) == "table" and first.t or now()))
+		local range = math.min((RankCfg.SearchRange or 150) + (RankCfg.SearchWiden or 15) * waited, RankCfg.SearchRangeMax or 1000)
+		local near = {}
+		for _, it in items do
+			local e = type(it.value) == "table" and it.value.elo or 0
+			if math.abs(e - anchorElo) <= range then table.insert(near, it) end
+		end
+		items = near
+	end
 	-- oldest first; a party (several ids in one entry) always goes onto ONE team, filling the emptier team first
 	local teams, picked, parties = {{}, {}}, {}, {}
 	local room = {size, solo and 0 or size}
@@ -301,6 +360,7 @@ local function tryMatch(mode, region)
 	for _, it in picked do pcall(function() map:RemoveAsync(it.key) end) end
 	local id = HttpService:GenerateGUID(false):sub(1, 8)
 
+	local opts = {Ranked = isRanked or nil}
 	if IS_STUDIO then
 		-- no teleports in Studio: start the match right here
 		local t = {{}, {}}
@@ -318,16 +378,16 @@ local function tryMatch(mode, region)
 		local busy = false
 		for _, team in t do for _, p in team do if p:GetAttribute("MatchId") ~= nil then busy = true end end end
 		if busy then
-			for _, team in t do for _, p in team do if Parties.IsLeader(p) then startSearch(p, mode, sinceOf[p]) end end end
+			for _, team in t do for _, p in team do if Parties.IsLeader(p) then startSearch(p, mode, sinceOf[p], isRanked) end end end
 			return
 		end
-		for _, team in t do for _, p in team do status(p, "Found", {Mode = mode}) end end
+		for _, team in t do for _, p in team do status(p, "Found", {Mode = mode, Ranked = isRanked or nil}) end end
 		task.wait(1.2)
 		for _, team in t do for _, p in team do status(p, "Idle") end end
-		local ok2, started = pcall(function() return StartMatchHook:Invoke(t[1], t[2]) end)
+		local ok2, started = pcall(function() return StartMatchHook:Invoke(t[1], t[2], opts) end)
 		if not (ok2 and started) then
 			-- someone's still busy (e.g. on the end screen): keep them searching and try again next check
-			for _, team in t do for _, p in team do if Parties.IsLeader(p) then startSearch(p, mode, sinceOf[p]) end end end
+			for _, team in t do for _, p in team do if Parties.IsLeader(p) then startSearch(p, mode, sinceOf[p], isRanked) end end end
 		end
 		return
 	end
@@ -339,60 +399,11 @@ local function tryMatch(mode, region)
 		for _, it in picked do pcall(function() map:SetAsync(it.key, it.value, ENTRY_LIFE, it.sortKey or (type(it.value) == "table" and it.value.t) or now()) end) end
 		return
 	end
-	local data = {Code = code, Mode = mode, Teams = teams, Id = id, Parties = parties}
+	local data = {Code = code, Mode = mode, Teams = teams, Id = id, Parties = parties, Ranked = isRanked or nil}
 	local okP, err = pcall(function() MessagingService:PublishAsync(TOPIC_FOUND, data) end)
 	if not okP then
 		warn("[GlobalMatchmaking] publish: " .. tostring(err))
 		task.spawn(onMatchFound, data) -- at least move the players on this server
-	end
-end
-
--- BOT FILL: the searches on THIS server that have waited long enough, packed into one match per mode
--- (a party always stays on one team); every empty place left gets a bot
-local function botFill()
-	if not botFillOn() or IS_MATCH_SERVER then return end
-	local byMode = {}
-	for p, s in searching do
-		if p.Parent == Players and now() - s.since >= (BotCfg.FillAfter or 10) then
-			byMode[s.mode] = byMode[s.mode] or {}
-			table.insert(byMode[s.mode], {owner = p, s = s})
-		end
-	end
-	for mode, list in byMode do
-		local size = MODES[mode]
-		table.sort(list, function(a, b) return a.s.since < b.s.since end)
-		local teams, room, owners = {{}, {}}, {size, size}, {}
-		for _, e in list do
-			local members = {}
-			for _, m in e.s.members or {e.owner} do
-				if m.Parent == Players and m:GetAttribute("MatchId") == nil then table.insert(members, m) end
-			end
-			if #members == 0 then continue end
-			local t = room[1] >= room[2] and 1 or 2
-			if room[t] < #members then t = t == 1 and 2 or 1 end
-			if room[t] >= #members then
-				for _, m in members do table.insert(teams[t], m) end
-				room[t] -= #members
-				table.insert(owners, e.owner)
-			end
-		end
-		if #owners == 0 then continue end
-		-- out of the global queue first, so no other server can pick them now
-		for _, o in owners do stopSearch(o, true) end
-		task.spawn(function()
-			for _, team in teams do for _, p in team do status(p, "Found", {Mode = mode}) end end
-			task.wait(1.2)
-			for _, team in teams do for _, p in team do status(p, "Idle") end end
-			local t1, t2 = {}, {}
-			local function free(p) return p.Parent == Players and p:GetAttribute("MatchId") == nil and not pendingTeleport[p] and not searchOwner[p] end
-			for _, p in teams[1] do if free(p) then table.insert(t1, p) end end
-			for _, p in teams[2] do if free(p) then table.insert(t2, p) end end
-			if #t1 + #t2 == 0 then return end
-			local ok, started = pcall(function() return StartMatchHook:Invoke(t1, t2, {size - #t1, size - #t2}) end)
-			if not (ok and started) then
-				for _, o in owners do if o.Parent == Players and Parties.IsLeader(o) then startSearch(o, mode) end end
-			end
-		end)
 	end
 end
 
@@ -401,15 +412,12 @@ task.spawn(function()
 		task.wait(CHECK_EVERY)
 		local todo = {}
 		for p, s in searching do
-			if p.Parent == Players then todo[s.mode .. "|" .. s.region] = {s.mode, s.region} end
+			if p.Parent == Players then todo[s.mode .. "|" .. s.region .. "|" .. tostring(s.ranked)] = {s.mode, s.region, s.ranked} end
 		end
 		for _, q in todo do
-			local ok, err = pcall(tryMatch, q[1], q[2])
+			local ok, err = pcall(tryMatch, q[1], q[2], q[3])
 			if not ok then warn("[GlobalMatchmaking] " .. tostring(err)) end
 		end
-		-- (after the real matchmaker: real players always get matched first)
-		local okB, errB = pcall(botFill)
-		if not okB then warn("[GlobalMatchmaking] bots: " .. tostring(errB)) end
 	end
 end)
 
@@ -430,9 +438,9 @@ local function sendToLobby(p, requeue)
 	local s = searching[searchOwner[leader] or leader]
 	local data = {FromMatch = true, Party = #list > 1 and Parties.Info(p) or nil}
 	if s then
-		data.Requeue = {Mode = s.mode, Since = s.since}
+		data.Requeue = {Mode = s.mode, Since = s.since, Ranked = s.ranked}
 	elseif requeue then
-		data.Requeue = {Mode = requeue}
+		data.Requeue = {Mode = requeue, Ranked = expected and expected.Ranked or nil}
 	end
 	-- a party's search is restarted by the leader only, once everyone's back
 	if data.Requeue and #list > 1 then data.Requeue.Leader = leader.UserId end
@@ -486,7 +494,7 @@ local function checkStart()
 		local t2 = {{}, {}}
 		for i, team in t do for _, p in team do if p.Parent == Players then table.insert(t2[i], p) end end end
 		for _, team in t2 do for _, p in team do status(p, "Idle") end end
-		StartMatchHook:Invoke(t2[1], t2[2])
+		StartMatchHook:Invoke(t2[1], t2[2], {Ranked = expected.Ranked == true or nil})
 	end)
 end
 
@@ -494,7 +502,9 @@ local function onPlayerAdded(p)
 	Regions.ForPlayer(p)
 	local join = p:GetJoinData()
 	local td = join and join.TeleportData
-	if IS_MATCH_SERVER then
+	-- FREE FOR ALL servers are handled by ServerScriptService > FFAServer, not here
+	if workspace:GetAttribute("FFA") or (type(td) == "table" and td.FFA) then return end
+	if isMatchServer() then
 		-- an admin reloaded their lobby (AdminServer > ReloadServer): this is just a stop on the way to a fresh lobby
 		if type(td) == "table" and td.Reload == true then
 			status(p, "Teleporting", {Mode = "Lobby", ToLobby = true})
@@ -547,7 +557,7 @@ local function onPlayerAdded(p)
 			end
 		end
 		task.wait(2) -- let their UI load
-		if p.Parent == Players then startSearch(p, td.Requeue.Mode, td.Requeue.Since) end
+		if p.Parent == Players then startSearch(p, td.Requeue.Mode, td.Requeue.Since, td.Requeue.Ranked == true) end
 	end
 end
 Players.PlayerAdded:Connect(onPlayerAdded)
@@ -560,8 +570,8 @@ Players.PlayerRemoving:Connect(function(p)
 	-- teleporting away with a search running: the entry stays (the next server refreshes it); otherwise remove it
 	local s = searching[p]
 	searching[p] = nil
-	if s and not IS_MATCH_SERVER then
-		pcall(function() queue(s.mode, s.region):RemoveAsync(tostring(p.UserId)) end)
+	if s and not isMatchServer() then
+		pcall(function() queue(s.mode, s.region, s.ranked):RemoveAsync(tostring(p.UserId)) end)
 	end
 end)
 

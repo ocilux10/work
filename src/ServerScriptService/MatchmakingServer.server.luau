@@ -34,22 +34,6 @@ local NameBadge = require(game:GetService("ReplicatedStorage"):WaitForChild("Nam
 
 local GREEN = Color3.fromRGB(40, 255, 120)
 
--- BOTS (ServerStorage > Bots > BotService / BotConfig): fill empty places on the pads and in Play menu searches.
--- No Bots folder = no bots, everything else works as before.
-local Bots, BotCfg
-do
-	local folder = SS:WaitForChild("Bots", 5)
-	local mod = folder and folder:WaitForChild("BotService", 5)
-	if mod then
-		local ok, res = pcall(require, mod)
-		if ok then Bots = res BotCfg = res.Config() else warn("[Matchmaking] BotService failed to load: " .. tostring(res)) end
-	end
-end
-local function isBot(p) return type(p) == "table" and p.IsBot == true end
-local function botsOn() return Bots ~= nil and BotCfg.Enabled == true end
--- name for cards / kill feed / replays (bots aren't Players)
-local function nameOf(p) return typeof(p) == "Instance" and NameBadge.Of(p) or tostring(p.Name) end
-
 -- HOOKS for ServerScriptService > GlobalMatchmaking (the Play-menu cross-server queue)
 --   StartMatch (BindableFunction): start a match here with these teams      -> Invoke({players}, {players})
 --   SendToLobby (BindableEvent): in a match server, a player is done -> teleport them to a lobby
@@ -64,23 +48,34 @@ local function hook(class, name)
 	return h
 end
 local StartMatchHook = hook("BindableFunction", "StartMatch")
+local Ranked -- ServerStorage > Ranked (Elo for ranked matches), loaded on first use
+local function ranked() Ranked = Ranked or require(game:GetService("ServerStorage"):WaitForChild("Ranked")) return Ranked end
 local SendToLobbyHook = hook("BindableEvent", "SendToLobby")
 local StreakEndedHook = hook("BindableEvent", "StreakEnded")
 -- a private server made by the matchmaker = a match server (players go back to a lobby after)
-local IS_MATCH_SERVER = game.PrivateServerId ~= "" and game.PrivateServerOwnerId == 0
+-- (a reserved server made for a match - NOT the tutorial's reserved server: ServerStorage > ServerKind)
+local ServerKind = require(game:GetService("ServerStorage"):WaitForChild("ServerKind"))
+local function isMatchServer() return ServerKind.IsMatchServer() end
 
 local ActiveFolder = workspace:FindFirstChild("ActiveMatches") or Instance.new("Folder")
 ActiveFolder.Name = "ActiveMatches"
 ActiveFolder.Parent = workspace
 
 ------------------------------------------------------------ HELPERS
+-- FRIENDLY MODE (private servers, owner panel): matches don't change win streaks / wins / losses (nothing to lose)
+-- PRIVATE SERVERS (someone's VIP server): matches played here give NOTHING - no XP / coins / battle pass XP, no stats,
+-- no leaderboards, no Elo, no quest progress - so nobody can farm in an empty private server. (Matches found from the
+-- Play button in a public server count as normal.)
+local PRIVATE_SERVER = game.PrivateServerId ~= "" and game.PrivateServerOwnerId ~= 0
+-- SERVER SHUTTING DOWN (you restarted servers for an update): nothing that happens to a match from now on counts -
+-- players kicked out mid-match don't lose their win streak / get a loss / a ranked quit penalty, and whoever is
+-- kicked last doesn't "win by forfeit" either.
+local shuttingDown = false
+game:BindToClose(function() shuttingDown = true end)
+local function friendlyMode() return PRIVATE_SERVER or shuttingDown end
 local function now() return workspace:GetServerTimeNow() end
 
 local function infoOf(p)
-	-- a bot, or a bot that's only on the pad board so far ({Name, UserId, Level})
-	if typeof(p) ~= "Instance" then
-		return {UserId = p.UserId, Name = p.Name, Level = p.Level or (p.Identity and p.Identity.Level) or 1, Device = "PC", Streak = 0}
-	end
 	return {
 		UserId = p.UserId,
 		Name = NameBadge.Of(p),
@@ -102,7 +97,18 @@ local function freeze(p, on)
 	p:SetAttribute("CombatLocked", on or nil)
 	p:SetAttribute("Frozen", on or nil) -- Movement script: no walking / jumping / sliding / crouching at all
 	local _, hum, root = aliveChar(p)
-	if root then root.Anchored = on end
+	if root then
+		if on then
+			-- the SERVER takes over the body first, so the player's computer can't keep sending its old spot back while
+			-- they're being moved (that was the back-and-forth teleporting on the 3-2-1)
+			if not root.Anchored then pcall(function() root:SetNetworkOwner(nil) end) end
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.Anchored = true
+		else
+			root.Anchored = false
+			pcall(function() root:SetNetworkOwnershipAuto() end)
+		end
+	end
 	if hum and not on then hum:ChangeState(Enum.HumanoidStateType.GettingUp) end
 end
 
@@ -113,12 +119,43 @@ local function teleport(p, cf)
 	char:PivotTo(cf)
 end
 
+-- END SCREEN: an anchored player is stood exactly on the floor under them (not hanging in the air)
+local function standOnGround(p)
+	local char = p.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if not (hum and root) then return end
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = {char}
+	local hit = workspace:Raycast(root.Position + Vector3.new(0, 2, 0), Vector3.new(0, -30, 0), params)
+	if not hit then return end
+	local legs = hum.RigType == Enum.HumanoidRigType.R6 and 2 or hum.HipHeight
+	local y = hit.Position.Y + legs + root.Size.Y / 2
+	root.Anchored = true
+	char:PivotTo(char:GetPivot() + Vector3.new(0, y - root.Position.Y, 0))
+end
+
 ------------------------------------------------------------ DEVICES
+-- (sent again whenever they switch: keyboard <-> controller <-> touch; at most every 0.5s)
+local DEVICES = {PC = true, Mobile = true, Controller = true, Console = true}
+local lastDevice = {}
 DeviceRemote.OnServerEvent:Connect(function(p, device)
-	if device == "PC" or device == "Mobile" or device == "Console" then
-		p:SetAttribute("Device", device)
+	if not DEVICES[device] then return end
+	local s = lastDevice[p] or {t = 0}
+	lastDevice[p] = s
+	s.want = device
+	if s.waiting then return end
+	local wait = 0.5 - (os.clock() - s.t)
+	if wait > 0 then
+		s.waiting = true
+		task.wait(wait)
+		s.waiting = false
 	end
+	s.t = os.clock()
+	if p.Parent then p:SetAttribute("Device", s.want) end
 end)
+Players.PlayerRemoving:Connect(function(p) lastDevice[p] = nil end)
 
 ------------------------------------------------------------ QUEUE AREAS
 local areas = {}
@@ -239,8 +276,11 @@ local function onSide(side, pos)
 end
 
 local function canQueue(p)
-	-- (not while searching from the Play menu either)
-	return p:GetAttribute("MatchId") == nil and not p:GetAttribute("InArena") and not p:GetAttribute("Searching") and aliveChar(p) ~= nil
+	-- (you CAN stand on a pad while searching from the Play menu: whichever finds a game first wins - a pad match
+	--  stops the Play search (GlobalMatchmaking), a Play-menu match found = MatchFound and you're off the pad)
+	-- (not while joining Free For All / in FFA)
+	return p:GetAttribute("MatchId") == nil and not p:GetAttribute("InArena") and not p:GetAttribute("MatchFound")
+		and p:GetAttribute("FFAJoining") ~= true and p:GetAttribute("FFA") ~= true and aliveChar(p) ~= nil
 end
 
 local function renderArea(area)
@@ -248,16 +288,13 @@ local function renderArea(area)
 	for team = 1, 2 do
 		local side = area.sides[team]
 		local list = area.members[team]
-		-- bots waiting to fill the empty places show after the players
-		local shown = table.clone(list)
-		for _, id in (area.fill and area.fill[team]) or {} do table.insert(shown, id) end
-		total += #shown
+		total += #list
 		if side.board then
 			for i = 1, area.teamSize do
 				local slot = side.board:FindFirstChild("Slot" .. i)
 				if slot then
-					local p = shown[i]
-					local key = p and typeof(p) ~= "Instance" and ("bot:" .. p.Name) or p and (p.UserId .. ":" .. tostring(p:GetAttribute("Level")) .. ":" .. tostring(p:GetAttribute("Device")) .. ":" .. tostring(p:GetAttribute("WinStreak"))) or ""
+					local p = list[i]
+					local key = p and (p.UserId .. ":" .. tostring(p:GetAttribute("Level")) .. ":" .. tostring(p:GetAttribute("Device")) .. ":" .. tostring(p:GetAttribute("WinStreak"))) or ""
 					if slot:GetAttribute("Shown") ~= key then
 						slot:SetAttribute("Shown", key)
 						PlayerCard.Fill(slot, p and infoOf(p) or nil, {Rotation = side.rotation})
@@ -315,26 +352,10 @@ local function queueTick()
 	-- ready check
 	for _, area in areas do
 		if area.starting then continue end
-		-- BOTS: someone's been waiting BotConfig.FillAfter seconds -> bots take the empty places
-		-- (a player who steps on takes a bot's place: the bots only fill what's left)
-		area.fill = area.fill or {{}, {}}
-		local humans = #area.members[1] + #area.members[2]
-		if humans == 0 then
-			area.waitSince = nil
-		else
-			area.waitSince = area.waitSince or os.clock()
-		end
-		local wantBots = humans > 0 and botsOn() and BotCfg.FillPads and os.clock() - area.waitSince >= (BotCfg.FillAfter or 10)
-		for team = 1, 2 do
-			local need = wantBots and (area.teamSize - #area.members[team]) or 0
-			local f = area.fill[team]
-			while #f > need do Bots.Release(table.remove(f)) end
-			while #f < need do table.insert(f, Bots.Identity()) end
-		end
 		renderArea(area)
-		local full = #area.members[1] + #area.fill[1] == area.teamSize and #area.members[2] + #area.fill[2] == area.teamSize
-		-- Config.SoloTest: one person is enough (Studio playtests only, and only with bots off)
-		if Config.SoloTest and not botsOn() and RunService:IsStudio() and humans > 0 then
+		local full = #area.members[1] == area.teamSize and #area.members[2] == area.teamSize
+		-- Config.SoloTest: one person is enough (Studio playtests only)
+		if Config.SoloTest and RunService:IsStudio() and (#area.members[1] + #area.members[2]) > 0 then
 			full = true
 		end
 		if full then
@@ -345,12 +366,9 @@ local function queueTick()
 				area.fullSince = nil
 				if area.modeText then area.modeText.Text = area.modeOriginal end
 				local t1, t2 = table.clone(area.members[1]), table.clone(area.members[2])
-				local fill = area.fill
 				area.members = {{}, {}}
-				area.fill = {{}, {}}
-				area.waitSince = nil
 				renderArea(area)
-				startMatch(t1, t2, area, nil, fill)
+				startMatch(t1, t2, area)
 			end
 		else
 			if area.fullSince and area.modeText then area.modeText.Text = area.modeOriginal end
@@ -375,7 +393,7 @@ local function setStat(match, p, key, value)
 	local st = match.stats[p]
 	if not st then return end
 	st[key] = value
-	if p.Parent == Players or isBot(p) then p:SetAttribute("Match" .. key, value) end
+	if p.Parent == Players then p:SetAttribute("Match" .. key, value) end
 end
 local function addStat(match, p, key, n)
 	local st = match.stats[p]
@@ -397,6 +415,12 @@ end
 local function chatJoinMatch(match, p)
 	local folder = channelsFolder()
 	if not folder then return end
+	-- MATCH SERVERS: everyone in the server is in this match, so the normal server chat ("Here") IS the match chat.
+	-- (Taking people out of it left them with only the Global / Friends tabs, where they couldn't type.)
+	if isMatchServer() then
+		p:SetAttribute("MatchChannel", "RBXGeneral")
+		return
+	end
 	if not match.chat then
 		local ch = Instance.new("TextChannel")
 		ch.Name = "Match_" .. match.id
@@ -422,6 +446,44 @@ local function chatJoinMatch(match, p)
 		task.wait(0.5)
 	until os.clock() - t0 > 12 or p.Parent ~= Players or matchByPlayer[p] ~= match or not match.chat
 end
+-- WHO YOU'RE SPECTATING IN YOUR MATCH (dead, watching a teammate): the client says who, the server checks it's
+-- someone in the same match and sets SpectatingUserId - BalloonCombatServer then sends you their damage numbers /
+-- kill popups too, like the lobby spectate.
+do
+	local ev = Remotes:FindFirstChild("SpectatingWho") or Instance.new("RemoteEvent")
+	ev.Name = "SpectatingWho"
+	ev.Parent = Remotes
+	ev.OnServerEvent:Connect(function(p, userId)
+		local t = typeof(userId) == "number" and Players:GetPlayerByUserId(userId)
+		if t and t ~= p and p:GetAttribute("MatchId") ~= nil and t:GetAttribute("MatchId") == p:GetAttribute("MatchId") then
+			p:SetAttribute("SpectatingUserId", t.UserId)
+		elseif not p:GetAttribute("WatchingMatch") then
+			p:SetAttribute("SpectatingUserId", nil)
+		end
+	end)
+end
+
+-- EVERYONE KEEPS THE SERVER CHAT ("Here"): anyone who isn't in a private match channel is put back in the normal
+-- server chat if they're missing from it (some players ended up with only the Global tab in matches and couldn't
+-- type - Roblox hadn't added them, or an older version took them out). Checked every few seconds.
+task.spawn(function()
+	while true do
+		task.wait(3)
+		local folder = channelsFolder()
+		local general = folder and folder:FindFirstChild("RBXGeneral")
+		if general then
+			local inGeneral = {}
+			for _, src in general:GetChildren() do if src:IsA("TextSource") then inGeneral[src.UserId] = true end end
+			for _, p in Players:GetPlayers() do
+				local mc = p:GetAttribute("MatchChannel")
+				local private = type(mc) == "string" and mc:match("^Match_") and folder:FindFirstChild(mc)
+				if not inGeneral[p.UserId] and not private then
+					pcall(function() general:AddUserAsync(p.UserId) end)
+				end
+			end
+		end
+	end
+end)
 local function chatLeaveMatch(match, p)
 	if match and match.chat then removeFromChannel(match.chat, p) end
 	if p.Parent ~= Players then return end
@@ -452,18 +514,23 @@ end
 local aimOf = {} -- [player] = latest camera look vector
 local eyeOf = {} -- [player] = camera height above their HumanoidRootPart (for replays)
 local aimSent = {} -- [player] = last time AimLook was published
-AimRemote.OnServerEvent:Connect(function(p, look, eye)
+-- ACCURATE REPLAYS: where each player's body was ON THEIR OWN SCREEN at the moment they looked that way (sent with the
+-- aim, so body + aim always match - the server's copy of their body arrives later than their aim did). Only used if
+-- it's close to where the server has them (a few studs: lag), so it can't be used to fake a position.
+local posOf = {} -- [player] = {pos = Vector3, t = os.clock()}
+AimRemote.OnServerEvent:Connect(function(p, look, eye, pos)
 	if typeof(look) == "Vector3" and look.Magnitude > 0.5 and look.Magnitude == look.Magnitude then
 		aimOf[p] = look.Unit
+		if typeof(pos) == "Vector3" and pos == pos then posOf[p] = {pos = pos, t = os.clock()} end
 		if typeof(eye) == "number" and eye == eye then eyeOf[p] = math.clamp(eye, -6, 12) end
 		-- LIVE SPECTATE: everyone can see where match players look (so spectators get their exact first-person view)
-		if os.clock() - (aimSent[p] or 0) >= 0.1 then
+		if os.clock() - (aimSent[p] or 0) >= 1 / 30 then -- (30x a second: spectating looks like their real view)
 			aimSent[p] = os.clock()
 			p:SetAttribute("AimLook", look.Unit)
 		end
 	end
 end)
-Players.PlayerRemoving:Connect(function(p) aimSent[p] = nil eyeOf[p] = nil end)
+Players.PlayerRemoving:Connect(function(p) aimSent[p] = nil eyeOf[p] = nil posOf[p] = nil end)
 local BODY = {
 	Head = true, HumanoidRootPart = true, Torso = true, ["Left Arm"] = true, ["Right Arm"] = true, ["Left Leg"] = true, ["Right Leg"] = true,
 	UpperTorso = true, LowerTorso = true, LeftUpperArm = true, LeftLowerArm = true, LeftHand = true, RightUpperArm = true,
@@ -481,9 +548,7 @@ local function recordFrame(match, t)
 			end
 			local list = match.rec[p]
 			if not list then list = {} match.rec[p] = list end
-			local look = aimOf[p]
-			if not look and isBot(p) and parts.HumanoidRootPart then look = parts.HumanoidRootPart.LookVector end
-			table.insert(list, {t = t, look = look, parts = parts})
+			table.insert(list, {t = t, look = aimOf[p], parts = parts})
 			while #list > 0 and t - list[1].t > REPLAY_TIME + 3 do table.remove(list, 1) end
 		end
 	end
@@ -502,7 +567,7 @@ local function snapshotReplay(match, killer, victim, killT, tags)
 	local t0 = killT - REPLAY_TIME
 	local people = {}
 	for p, list in match.rec or {} do
-		if p.Parent == Players or isBot(p) then
+		if p.Parent == Players then
 			local frames = {}
 			for _, f in list do
 						if f.t >= t0 and f.t <= t1 then table.insert(frames, {t = f.t - t0, look = f.look, parts = f.parts}) end
@@ -521,7 +586,7 @@ local function snapshotReplay(match, killer, victim, killT, tags)
 			table.insert(hits, {t = h.t - t0, Attacker = h.Attacker, Victim = h.Victim, pos = h.pos, amount = h.amount, head = h.head, melee = h.melee})
 		end
 	end
-	return {Length = t1 - t0, Killer = killer.UserId, KillerName = nameOf(killer), Victim = victim.UserId, VictimName = nameOf(victim),
+	return {Length = t1 - t0, Killer = killer.UserId, KillerName = NameBadge.Of(killer), Victim = victim.UserId, VictimName = NameBadge.Of(victim),
 		KillAt = killT - t0, Tags = tags, People = people, Shots = shots, Hits = hits}
 end
 
@@ -551,14 +616,6 @@ local function teamInfos(match)
 end
 
 local function checkForfeit(match)
-	-- only bots left: nobody to play for, end it
-	local humans = 0
-	for _, team in match.teams do for _, p in team do if not isBot(p) then humans += 1 end end end
-	if humans == 0 then
-		match.cancelled = true
-		match.forfeitWinner = match.forfeitWinner or 1
-		return
-	end
 	if #match.teams[1] == 0 and #match.teams[2] == 0 then
 		match.cancelled = true
 	elseif #match.teams[1] == 0 then
@@ -584,7 +641,6 @@ end
 local function returnToLobby(p)
 	local match = matchByPlayer[p]
 	matchByPlayer[p] = nil
-	if isBot(p) then Bots.Despawn(p) return end
 	task.spawn(chatLeaveMatch, match, p)
 	if p.Parent ~= Players then return end
 	for _, k in {"MatchKills", "MatchDeaths", "MatchAssists"} do p:SetAttribute(k, nil) end
@@ -596,13 +652,14 @@ local function returnToLobby(p)
 	p:SetAttribute("InArena", false)
 	p:SetAttribute("MatchDead", nil)
 	p:SetAttribute("MatchTeamSize", nil)
+	p:SetAttribute("MatchRanked", nil)
 	p:SetAttribute("MatchEnded", nil)
 	-- the end screen froze them: unfreeze, or they can't move back in the lobby
 	p:SetAttribute("Frozen", nil)
 	p:SetAttribute("CombatLocked", nil)
 	local root = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
 	if root then root.Anchored = false end
-	if IS_MATCH_SERVER then
+	if isMatchServer() then
 		-- match servers have no lobby: send them back to a real lobby server
 		SendToLobbyHook:Fire(p)
 		return
@@ -610,53 +667,15 @@ local function returnToLobby(p)
 	p:LoadCharacter() -- fresh character at the lobby SpawnLocation
 end
 
--- where someone on `team` (slot `index`) starts this round, facing the other team's spawns
-local function roundSpot(match, team, index)
-	local side = team
-	if match.swapped then side = team == 1 and 2 or 1 end
-	local spawns = match.map.Spawns["Team" .. side]:GetChildren()
-	table.sort(spawns, function(a, b) return (tonumber(a.Name) or 0) < (tonumber(b.Name) or 0) end)
-	local spawnPart = spawns[((index - 1) % #spawns) + 1]
-	local enemy = match.map.Spawns["Team" .. (side == 1 and 2 or 1)]:GetChildren()
-	local target = Vector3.zero
-	for _, e in enemy do target += e.Position end
-	target = #enemy > 0 and target / #enemy or (spawnPart.Position + spawnPart.CFrame.LookVector)
-	local pos = spawnPart.Position + Vector3.new(0, 3, 0)
-	return CFrame.lookAt(pos, Vector3.new(target.X, pos.Y, target.Z))
-end
-
--- BOTS: same as a player - a body at their spawn (a new one if it died), frozen until the round starts
-local function placeBot(match, bot, team, index)
-	match.placing[bot] = true
-	local facing = roundSpot(match, team, index)
-	local _, hum, root = aliveChar(bot)
-	if root and bot.Alive then
-		root.Anchored = true
-		bot.Model:PivotTo(facing)
-		if bot.Align then bot.Align.CFrame = facing.Rotation end
-		hum.Health = hum.MaxHealth
-	elseif not Bots.Place(bot, facing) or matchByPlayer[bot] ~= match then
-		match.placing[bot] = nil
-		return
-	end
-	freeze(bot, true)
-	match.alive[bot] = true
-	if match.diedConn[bot] then match.diedConn[bot]:Disconnect() end
-	match.diedConn[bot] = bot.Humanoid.Died:Connect(function()
-		if match.alive[bot] then
-			match.alive[bot] = false
-			addStat(match, bot, "Deaths", 1)
-			send(match, "PlayerDied", {UserId = bot.UserId})
-		end
-	end)
-	match.placing[bot] = nil
-end
-
 -- spectateAfter: respawned while the round result is showing -> stand at your own spawn (hidden away from
 -- the sky spectator spot) but keep watching the other players until the next round starts
 local function placeForRound(match, p, team, index, spectateAfter)
-	if isBot(p) then placeBot(match, p, team, index) return end
 	match.placing[p] = true
+	-- each placement gets a number: an older placement's "put them back" checks stop once a newer one happened
+	-- (two of them fighting over the same body was the enemy flickering between the two spawns on the 3-2-1)
+	match.placeToken = match.placeToken or {}
+	local myToken = (match.placeToken[p] or 0) + 1
+	match.placeToken[p] = myToken
 	-- dead? let Roblox's normal respawn happen first (calling LoadCharacter on top of it can spawn twice)
 	local t0 = os.clock()
 	while not aliveChar(p) and os.clock() - t0 < Players.RespawnTime + 1 and p.Parent == Players do task.wait() end
@@ -691,12 +710,15 @@ local function placeForRound(match, p, team, index, spectateAfter)
 	-- send back where it was last round and undo the teleport (the "start where I was last round" glitch)
 	freeze(p, true)
 	teleport(p, facing)
+	match.spawnAt = match.spawnAt or {}
+	match.spawnAt[p] = {cf = facing, side = side}
 	-- first-person camera keeps its old direction unless we turn it too (the client also snaps itself into place)
 	if not spectateAfter then MatchEvent:FireClient(p, "Face", {Look = facing.LookVector, CFrame = facing}) end
 	-- double-check a moment later and put them back if anything moved them
-	for _, delay in {0.3, 0.9} do
+	for _, delay in {0.3, 0.6, 0.9, 1.3, 1.8, 2.4} do
 		task.delay(delay, function()
 			local c2, _, root = aliveChar(p)
+			if match.placeToken[p] ~= myToken then return end
 			if c2 == char and root and match.phase == "rounds" and not match.roundActive
 				and (root.Position - facing.Position).Magnitude > 4 then
 				root.Anchored = true
@@ -734,7 +756,7 @@ local LiveFolder = MM:FindFirstChild("LiveMatches") or Instance.new("Folder")
 LiveFolder.Name = "LiveMatches"
 LiveFolder.Parent = MM
 local function publishLive(match, scores, extra)
-	if IS_MATCH_SERVER or not match.map then return end
+	if isMatchServer() or not match.map then return end
 	local f = LiveFolder:FindFirstChild(match.id)
 	if not f then
 		f = Instance.new("Folder")
@@ -750,7 +772,7 @@ local function publishLive(match, scores, extra)
 	for t = 1, 2 do
 		local list = {}
 		for _, p in match.teams[t] do
-			if p.Parent == Players or isBot(p) then table.insert(list, {UserId = p.UserId, Name = nameOf(p)}) end
+			if p.Parent == Players then table.insert(list, {UserId = p.UserId, Name = NameBadge.Of(p)}) end
 		end
 		f:SetAttribute("Team" .. t, HttpService:JSONEncode(list))
 	end
@@ -772,7 +794,9 @@ local function fullStart(match, map, mapInfo)
 		for _, p in team do
 			local hum = p.Character and p.Character:FindFirstChildOfClass("Humanoid")
 			match.full.people[p] = {UserId = p.UserId, Name = p.DisplayName, Verified = NameBadge.Verified(p), Team = t, samples = {}, Rig = hum and hum.RigType.Name or "R15",
-				Bot = isBot(p) or nil}
+				Skin = p:GetAttribute("EquippedSkin"), Base = p:GetAttribute("EquippedBase"), -- (the replay shows their own wrap + base balloon)
+				Ping = p:GetAttribute("Ping") or 0, -- (the replay shows them where they really were on their own screen)
+				Prefs = p:GetAttribute("Setting_Prefs")} -- (their crosshair / hitmarker in the replay)
 		end
 	end
 end
@@ -791,14 +815,20 @@ local function fullSample(match)
 	if not f then return end
 	local idx = math.floor((os.clock() - f.t0) * FULL_RATE + 0.5)
 	if idx < f.frames then return end
+	local first = f.frames -- (a slow server frame skipped some: they get this sample too, no holes in the replay)
 	f.frames = idx + 1
 	for p, person in f.people do
-		local char = (p.Parent == Players or isBot(p)) and p.Character
+		local char = p.Parent == Players and p.Character
 		local root = char and char:FindFirstChild("HumanoidRootPart")
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		local s = false
 		if root and hum then
-			local rel = f.origin:ToObjectSpace(root.CFrame)
+			local at = root.CFrame
+			local mine = posOf[p]
+			if mine and os.clock() - mine.t < 0.2 and (mine.pos - at.Position).Magnitude < 12 then
+				at = CFrame.new(mine.pos) * at.Rotation
+			end
+			local rel = f.origin:ToObjectSpace(at)
 			local look = aimOf[p] and f.origin:VectorToObjectSpace(aimOf[p]) or rel.LookVector
 			local _, yaw = rel:ToEulerAnglesYXZ()
 			local pitch = math.asin(math.clamp(look.Y, -1, 1))
@@ -811,8 +841,11 @@ local function fullSample(match)
 			if char:GetAttribute("Sprinting") then flags += 8 end
 			if char:GetAttribute("Sliding") then flags += 16 end
 			s = {rel.Position, alive and lookYaw or yaw, pitch, flags, math.clamp(math.floor(hum.Health + 0.5), 0, 255), eyeOf[p]}
+			-- (their AVERAGE ping over the match, not just at the start)
+			local ping = tonumber(p:GetAttribute("Ping"))
+			if ping then person.pingSum = (person.pingSum or 0) + ping person.pingN = (person.pingN or 0) + 1 end
 		end
-		person.samples[idx + 1] = s
+		for k = math.max(first, idx - 5), idx do person.samples[k + 1] = s end
 	end
 end
 local function fullFinish(match, scores, winner)
@@ -821,7 +854,10 @@ local function fullFinish(match, scores, winner)
 	f.saved = true
 	local people = {}
 	for p, person in f.people do
-		table.insert(people, {UserId = person.UserId, Name = person.Name, Team = person.Team, Rig = person.Rig, Bot = person.Bot,
+		table.insert(people, {UserId = person.UserId, Name = person.Name, Team = person.Team, Rig = person.Rig,
+			Verified = person.Verified, Skin = person.Skin, Base = person.Base,
+			Ping = (person.pingN or 0) > 0 and math.floor(person.pingSum / person.pingN + 0.5) or person.Ping,
+			Prefs = type(person.Prefs) == "string" and #person.Prefs <= 6000 and person.Prefs or nil,
 			Data = Replays.PackSamples(person.samples, f.frames)})
 	end
 	local info = f.mapInfo or {}
@@ -829,7 +865,8 @@ local function fullFinish(match, scores, winner)
 		Id = match.id .. "_" .. os.time(),
 		Date = os.time(),
 		Map = info.Name or "", Model = f.model, Image = info.Image or "",
-		Mode = match.mode, Rate = FULL_RATE, Frames = f.frames, Bytes = Replays.BYTES, V = 3,
+		Mode = match.mode, Rate = FULL_RATE, Frames = f.frames, Bytes = Replays.BYTES, V = 4,
+		ClientPos = true, -- (bodies recorded where they were on their own screen: ReplayClient doesn't shift them by ping)
 		Score1 = scores[1], Score2 = scores[2], Winner = winner,
 		People = people, Events = f.events,
 		Origin = {f.origin:GetComponents()},
@@ -952,6 +989,33 @@ local function runMatch(match)
 		end
 		match.roundActive = true
 		match.roundStartedAt = os.clock()
+		-- SPAWN GUARD: for the first seconds of the round, anyone who ends up on the wrong side (their computer still
+		-- had them where they stood last round - teams swap ends) is put straight back on their own spawn
+		task.spawn(function()
+			local startedAt = match.roundStartedAt
+			while match.roundActive and match.roundStartedAt == startedAt and os.clock() - startedAt < (Config.SpawnGuardTime or 2) do
+				for p, s in match.spawnAt or {} do
+					local _, _, root = aliveChar(p)
+					if root and match.map and match.map:FindFirstChild("Spawns") then
+						local enemy = match.map.Spawns:FindFirstChild("Team" .. (s.side == 1 and 2 or 1))
+						local nearEnemy = false
+						for _, e in enemy and enemy:GetChildren() or {} do
+							if e:IsA("BasePart") and (e.Position - root.Position).Magnitude < 14 then nearEnemy = true break end
+						end
+						local far = (root.Position - s.cf.Position).Magnitude
+						-- ("too far" grows with time: someone sprint-sliding off the spawn fast is NOT put back -
+						-- only an impossible jump, i.e. their screen still had them where they were last round)
+						local reach = 20 + (os.clock() - startedAt) * 70
+						if (nearEnemy and far > 14 and os.clock() - startedAt < 0.6) or far > reach + 40 then
+							root.AssemblyLinearVelocity = Vector3.zero
+							teleport(p, s.cf)
+							MatchEvent:FireClient(p, "Face", {Look = s.cf.LookVector, CFrame = s.cf})
+						end
+					end
+				end
+				task.wait(0.1)
+			end
+		end)
 		match.damagers = {} -- [victim player] = {[attacker] = true}, for assists (this round only)
 		-- ROUND TIMER: nobody wins within Config.RoundTime = draw (no point)
 		local roundEndsAt = Config.RoundTime and (workspace:GetServerTimeNow() + Config.RoundTime) or nil
@@ -993,7 +1057,7 @@ local function runMatch(match)
 			if lk and lk.replay and Config.KillReplay ~= false then
 				for _, p in allPlayers(match) do freeze(p, true) end
 				send(match, "KillReplay", lk.replay)
-				task.wait(lk.replay.Length + (Config.FadeTime or 0.6) * 2 + 1)
+				task.wait(lk.replay.Length + (Config.KillReplayExtra and Config.KillReplayExtra() or 0) + (Config.FadeTime or 0.6) * 2 + 1)
 			end
 			break
 		end
@@ -1020,14 +1084,21 @@ local function runMatch(match)
 	if mvp then
 		for t = 1, 2 do
 			local ordered = {}
-			for _, p in match.teams[t] do if p.Parent == Players or isBot(p) then table.insert(ordered, p) end end
+			for _, p in match.teams[t] do if p.Parent == Players then table.insert(ordered, p) end end
 			table.sort(ordered, function(a, b) return mvpScore(match, a, winner) > mvpScore(match, b, winner) end)
 			local i = table.find(ordered, mvp)
 			if i then table.remove(ordered, i) table.insert(ordered, 1, mvp) end
 			lineUp(match, t, ordered)
 		end
-		crownMVP(mvp)
-		if not isBot(mvp) then Quests.Add(mvp, "MVP", 1) end
+		-- (the MVP tag over their head only in 1v1: in 2v2+ it showed on everyone's screen - the end screen still says MVP)
+		if #match.teams[1] <= 1 and #match.teams[2] <= 1 then crownMVP(mvp) end
+		Quests.Add(mvp, "MVP", 1)
+	end
+	-- RANKED: Elo for everyone (skill based + win streak bonus: ReplicatedStorage > RankConfig)
+	local eloResults = {}
+	if match.ranked and not friendlyMode() and (winner == 1 or winner == 2) then
+		local ok, res = pcall(function() return ranked().ApplyMatch({match.teams[1], match.teams[2]}, winner, match.eloAtStart) end)
+		if ok and res then eloResults = res else warn("[Matchmaking] ranked Elo: " .. tostring(res)) end
 	end
 	local brokenStreaks = {} -- {{player, oldStreak}}
 	for _, p in allPlayers(match) do
@@ -1035,25 +1106,36 @@ local function runMatch(match)
 		local team = p:GetAttribute("MatchTeam")
 		local won = team == winner
 		local st = match.stats[p]
-		local xp = (won and Config.XP.Win or Config.XP.Loss) + st.KillXP
-		PlayerData.AddXP(p, xp)
+		local xp = PRIVATE_SERVER and 0 or ((won and Config.XP.Win or Config.XP.Loss) + st.KillXP)
+		if xp > 0 then PlayerData.AddXP(p, xp) end
 		if won then
-			PlayerData.Increment(p, "WinStreak", 1)
-			PlayerData.Increment(p, "Wins", 1)
+			if not friendlyMode() then PlayerData.Increment(p, "WinStreak", 1) end
+			if not friendlyMode() then PlayerData.Increment(p, "Wins", 1) end
 		else
 			local old = p:GetAttribute("WinStreak") or 0
 			if old >= (Config.StreakAnnounceMin or 10) then table.insert(brokenStreaks, {p, old}) end
-			PlayerData.Set(p, "WinStreak", 0)
-			PlayerData.Increment(p, "Losses", 1)
+			if not friendlyMode() then PlayerData.Set(p, "WinStreak", 0) end
+			if not friendlyMode() then PlayerData.Increment(p, "Losses", 1) end
 		end
-		PlayerData.Increment(p, "Kills", st.Kills)
-		PlayerData.Increment(p, "Deaths", st.Deaths)
-		PlayerData.Increment(p, "Matches", 1)
+		if not PRIVATE_SERVER then
+			PlayerData.Increment(p, "Kills", st.Kills)
+			PlayerData.Increment(p, "Deaths", st.Deaths)
+		end
+		if not friendlyMode() then PlayerData.Increment(p, "Matches", 1) end
 		-- daily quests
 		if won then Quests.Add(p, "Wins", 1) end
 		if match.mode == "1v1" then Quests.Add(p, "Matches1v1", 1) end
+		-- battle pass XP (ReplicatedStorage > BattlePass > BattlePassConfig XP)
+		do
+			local bpc = require(RS:WaitForChild("BattlePass"):WaitForChild("BattlePassConfig"))
+			if not PRIVATE_SERVER then
+				local bpx = (bpc.XP.MatchPlayed or 0) + (won and bpc.XP.Win or 0) + st.Kills * (bpc.XP.Kill or 0)
+				pcall(function() require(SS:WaitForChild("BattlePass")).AddXP(p, bpx) end)
+			end
+		end
 		local li = match.levelInfo[p] or {From = p:GetAttribute("Level") or 1, Coins = 0}
 		freeze(p, true)
+		standOnGround(p)
 		p:SetAttribute("MatchEnded", true) -- end screen: Queue Again is allowed now (GlobalMatchmaking)
 		-- combat off for the victory screen: third person, no balloon / viewmodel, so the camera can circle the player
 		p:SetAttribute("Spectating", nil)
@@ -1065,6 +1147,7 @@ local function runMatch(match)
 			Quests = Quests.Summary(p, match.questSnap[p]),
 			LevelFrom = li.From, LevelTo = PlayerData.GetLevel(p), LevelCoins = li.Coins,
 			MVP = mvpInfo,
+			Elo = eloResults[p], -- ranked only: {Old, New, Delta, Bonus, FromRank, ToRank, FromIndex, ToIndex, NextElo, RankMin}
 		})
 	end
 	-- WIN STREAK ANNOUNCEMENTS (GlobalMatchmaking posts them): who broke it = the winning team
@@ -1110,7 +1193,7 @@ function pickMVP(match, winner)
 	for t = 1, 2 do
 		for _, p in match.teams[t] do
 			local st = match.stats[p]
-			if (p.Parent == Players or isBot(p)) and st and (st.Kills > 0 or (st.Assists or 0) > 0) then
+			if p.Parent == Players and st and (st.Kills > 0 or (st.Assists or 0) > 0) then
 				local s = mvpScore(match, p, winner)
 				-- ties: more kills, then fewer deaths
 				if not best or s > bestScore
@@ -1155,11 +1238,40 @@ function lineUp(match, t, ordered)
 end
 
 -- crown + gold outline on the MVP (everyone sees it), removed when the end screen is over
+-- (the tag + outline go the moment the end screen is over - they used to stay a fixed time and could still be
+--  floating there in the lobby / next match)
+local function endWithScreen(p, ...)
+	local items = {...}
+	local conns = {}
+	local function clear()
+		for _, it in items do if it and it.Parent then it:Destroy() end end
+		for _, cn in conns do cn:Disconnect() end
+	end
+	table.insert(conns, p:GetAttributeChangedSignal("MatchEnded"):Connect(function() if not p:GetAttribute("MatchEnded") then clear() end end))
+	table.insert(conns, p:GetAttributeChangedSignal("MatchId"):Connect(function() if p:GetAttribute("MatchId") == nil then clear() end end))
+	table.insert(conns, p.CharacterAdded:Connect(clear))
+end
 function crownMVP(p)
 	local c = Config.MVP or {}
 	local char = p.Character
 	local head = char and char:FindFirstChild("Head")
 	if not head then return end
+	-- THE LOOK: StarterGui > MatchUI > Templates > MVPTag (BillboardGui) + MVPHighlight (Highlight)
+	local tf = game:GetService("StarterGui"):FindFirstChild("MatchUI") and game:GetService("StarterGui").MatchUI:FindFirstChild("Templates")
+	local tplTag, tplHl = tf and tf:FindFirstChild("MVPTag"), tf and tf:FindFirstChild("MVPHighlight")
+	if tplTag and tplHl then
+		local bb2 = tplTag:Clone()
+		bb2.Enabled = true
+		bb2.Parent = head
+		local hl2 = tplHl:Clone()
+		hl2.Enabled = true
+		hl2.Parent = char
+		local life2 = (Config.EndScreenTime or 8) + (Config.FadeTime or 1) + 1
+		game:GetService("Debris"):AddItem(bb2, life2)
+		game:GetService("Debris"):AddItem(hl2, life2)
+		endWithScreen(p, bb2, hl2)
+		return
+	end
 	local bb = Instance.new("BillboardGui")
 	bb.Name = "MVPTag"
 	bb.Size = UDim2.fromOffset(160, 44)
@@ -1188,43 +1300,54 @@ function crownMVP(p)
 	local life = (Config.EndScreenTime or 8) + (Config.FadeTime or 1) + 1
 	game:GetService("Debris"):AddItem(bb, life)
 	game:GetService("Debris"):AddItem(hl, life)
+	endWithScreen(p, bb, hl)
 end
 
--- fill = bots for the empty places: {{identities for team 1}, {identities for team 2}} (BotService.Identity)
-startMatch = function(team1, team2, area, source, fill)
-	local id = HttpService:GenerateGUID(false):sub(1, 8)
-	team1, team2 = table.clone(team1), table.clone(team2)
-	for t, team in {team1, team2} do
-		for _, ident in (fill and fill[t]) or {} do
-			local bot = Bots and Bots.New({Identity = ident, Team = t, MatchId = id})
-			if bot then table.insert(team, bot) elseif Bots then Bots.Release(ident) end
+startMatch = function(team1, team2, area, source, opts)
+	-- PADS / DUELS PLAY ON THEIR OWN SERVER (Config.PadsUseReservedServers): in a real lobby the players are sent to a
+	-- fresh match server (the same kind the Play menu uses), so lobbies never run matches themselves. In Studio, or if
+	-- reserving fails, the match runs right here like before.
+	if Config.PadsUseReservedServers ~= false and not isMatchServer() and not RunService:IsStudio() and source ~= "Search" then
+		local reserve = Hooks:FindFirstChild("ReserveMatch")
+		if reserve then
+			local size = math.max(#team1, #team2, 1)
+			local ok, sent = pcall(function() return reserve:Invoke(team1, team2, size .. "v" .. size) end)
+			if ok and sent then
+				for _, p in team1 do pcall(function() p:SetAttribute("LastSource", source or "Pad") end) end
+				for _, p in team2 do pcall(function() p:SetAttribute("LastSource", source or "Pad") end) end
+				return true
+			end
+			warn("[Matchmaking] couldn't send the pad match to its own server, playing it here")
 		end
 	end
 	local match = {
-		id = id,
+		id = HttpService:GenerateGUID(false):sub(1, 8),
 		teams = {team1, team2},
 		original = {table.clone(team1), table.clone(team2)},
 		area = area,
 		stats = {}, alive = {}, placing = {}, diedConn = {}, charConn = {},
 		questSnap = {}, levelInfo = {}, -- for the end screen (quest progress / levels gained this match)
 		phase = "starting",
+		ranked = type(opts) == "table" and opts.Ranked == true, -- Play menu > Ranked
+		eloAtStart = {},
 	}
+	if match.ranked then
+		for _, team in {team1, team2} do
+			for _, p in team do pcall(function() match.eloAtStart[p] = ranked().Get(p) end) end
+		end
+	end
 	local size = math.max(#team1, #team2, 1)
 	match.mode = size .. "v" .. size
 	for t, team in match.teams do
 		for _, p in team do
 			matchByPlayer[p] = match
-			if isBot(p) then
-				match.stats[p] = {Kills = 0, Deaths = 0, Assists = 0, KillXP = 0}
-				for _, k in {"Kills", "Deaths", "Assists"} do p:SetAttribute("Match" .. k, 0) end
-				p:SetAttribute("MatchTeamSize", size)
-				continue
-			end
 			p:SetAttribute("LastMode", match.mode) -- the end screen's Queue Again button searches this mode
 			-- "Search" = came from the Play menu (Queue Again searches again), "Pad" = came from a queue pad / duel
 			-- (Queue Again puts you back on a pad of the same mode)
 			p:SetAttribute("LastSource", source or "Pad")
 			p:SetAttribute("MatchTeamSize", size)
+			p:SetAttribute("MatchRanked", match.ranked or nil)
+			p:SetAttribute("LastRanked", match.ranked or nil) -- (Queue Again searches ranked again)
 			p:SetAttribute("MatchDead", nil)
 			match.stats[p] = {Kills = 0, Deaths = 0, Assists = 0, KillXP = 0}
 			for _, k in {"Kills", "Deaths", "Assists"} do p:SetAttribute("Match" .. k, 0) end
@@ -1241,17 +1364,22 @@ startMatch = function(team1, team2, area, source, fill)
 					if match.roundActive then
 						spectate(match, p)
 					else
-						-- respawned between rounds (round result / replay): straight back to your own spawn,
-						-- not the spectator spot up in the air (that's the "camera in the sky" glitch)
-						for t, team in match.teams do
-							local i = table.find(team, p)
-							if i then
-								-- spectate straight away so the camera never shows your new body / the lobby
-								p:SetAttribute("Spectating", true)
-								task.spawn(placeForRound, match, p, t, i, true)
-								break
-							end
-						end
+						-- respawned between rounds (round result / replay): the new body waits out of sight (held still,
+						-- far away) and only appears on its spawn when the next round's countdown starts - the round
+						-- placement moves it there. (Camera keeps spectating meanwhile.)
+						p:SetAttribute("Spectating", true)
+						p:SetAttribute("InArena", false)
+						task.spawn(function()
+							local t0 = os.clock()
+							while not aliveChar(p) and os.clock() - t0 < 5 and p.Parent == Players do task.wait() end
+							if match.placing[p] or match.roundActive then return end
+							freeze(p, true)
+							-- (tucked UNDER this map, not far away: the map has to stay loaded on their screen for the final
+							-- kill replay / spectating - far away it unloads and they only saw sky)
+							local base = match.map and match.map:GetPivot().Position or (Config.HoldingSpot or Vector3.new(0, 900, -6000))
+							local hold = base + Vector3.new((p.UserId % 7) * 4, -(Config.DeadHoldDepth or 60), 0)
+							teleport(p, CFrame.new(hold))
+						end)
 					end
 				end
 			end)
@@ -1310,10 +1438,11 @@ LeaveEndScreen.OnServerEvent:Connect(leaveEndScreen)
 
 ------------------------------------------------------------ KILLS
 PlayerKilled.Event:Connect(function(killer, victimModel, victimPlayer, tags)
-	-- (a bot killed by a player counts the same as a player)
-	if not victimPlayer and Bots and victimModel then victimPlayer = Bots.ByModel(victimModel) end
 	local match = killer and matchByPlayer[killer]
-	if not match or not victimPlayer or matchByPlayer[victimPlayer] ~= match or not match.roundActive then return end
+	-- counted whenever the victim's death counts (still alive this round), not only while roundActive:
+	-- a kill that ends the round / a trade kill at the same moment used to be lost while the death still counted
+	if not match or not victimPlayer or matchByPlayer[victimPlayer] ~= match then return end
+	if not (match.roundActive or (match.phase == "rounds" and match.alive[victimPlayer])) then return end
 	addStat(match, killer, "Kills", 1)
 	Quests.OnKill(killer, tags) -- daily quests
 	-- ASSISTS: everyone else who damaged the victim this round
@@ -1330,7 +1459,7 @@ PlayerKilled.Event:Connect(function(killer, victimModel, victimPlayer, tags)
 	end
 	local ki, vi = infoOf(killer), infoOf(victimPlayer)
 	ki.Team, vi.Team = killer:GetAttribute("MatchTeam"), victimPlayer:GetAttribute("MatchTeam")
-	match.lastKill = {killer = nameOf(killer), victim = nameOf(victimPlayer), killerInfo = ki, victimInfo = vi}
+	match.lastKill = {killer = NameBadge.Of(killer), victim = NameBadge.Of(victimPlayer), killerInfo = ki, victimInfo = vi}
 	pcall(fullEvent, match, {k = "kill", a = killer.UserId, v = victimPlayer.UserId, tags = tags})
 	-- keep the last few seconds in case this turns out to be the match-winning kill
 	-- (taken a moment AFTER the kill so the hit + pop + fall are in it too)
@@ -1343,7 +1472,6 @@ end)
 
 -- who hurt who (for assists)
 PlayerDamaged.Event:Connect(function(attacker, victimModel, victimPlayer, damage, hitPos, isHead, isMelee)
-	if not victimPlayer and Bots and victimModel then victimPlayer = Bots.ByModel(victimModel) end
 	-- every hit is remembered for the kill replay
 	local m = attacker and matchByPlayer[attacker]
 	if m and victimPlayer and m.phase == "rounds" and typeof(hitPos) == "Vector3" then
@@ -1398,59 +1526,6 @@ RunService.Heartbeat:Connect(function(dt)
 	end
 end)
 
--- BOTS hitting / killing people: hits, assists, kill feed, kill replay - the same as a player's
-if Bots then
-	local Effect = RS:WaitForChild("BalloonCombat"):WaitForChild("Remotes"):WaitForChild("Effect")
-	local CombatConfig = require(RS.BalloonCombat:WaitForChild("Config"))
-	Bots.OnShot = function(bot, from, to, hit)
-		local match = matchByPlayer[bot]
-		if not match or match.phase ~= "rounds" then return end
-		match.shots = match.shots or {}
-		table.insert(match.shots, {t = os.clock(), from = from, to = to, pop = hit, UserId = bot.UserId})
-		if match.full then pcall(fullEvent, match, {k = "shot", u = bot.UserId, from = fullRel(match, from), to = fullRel(match, to), pop = hit or nil}) end
-	end
-	Bots.OnHit = function(bot, victimChar, damage, isHead, isMelee, killed)
-		local match = matchByPlayer[bot]
-		if not match or match.phase ~= "rounds" then return end
-		local victim = Players:GetPlayerFromCharacter(victimChar) or Bots.ByModel(victimChar)
-		if not victim or matchByPlayer[victim] ~= match then return end
-		local part = victimChar:FindFirstChild(isHead and "Head" or "UpperTorso") or victimChar:FindFirstChild("HumanoidRootPart")
-		local hitPos = part and part.Position or bot.Root.Position
-		match.hits = match.hits or {}
-		table.insert(match.hits, {t = os.clock(), Attacker = bot.UserId, Victim = victim.UserId, pos = hitPos, amount = damage, head = isHead, melee = isMelee})
-		if match.full then pcall(fullEvent, match, {k = "hit", a = bot.UserId, v = victim.UserId, pos = fullRel(match, hitPos), n = damage, head = isHead or nil, melee = isMelee or nil}) end
-		if not match.roundActive or not match.damagers then return end
-		match.damagers[victim] = match.damagers[victim] or {}
-		match.damagers[victim][bot] = true
-		if not killed then return end
-		addStat(match, bot, "Kills", 1)
-		for attacker in match.damagers[victim] do
-			if attacker ~= bot and matchByPlayer[attacker] == match then addStat(match, attacker, "Assists", 1) end
-		end
-		match.damagers[victim] = nil
-		local tags = {}
-		if isHead then table.insert(tags, {name = "HEADSHOT", xp = 0}) end
-		if isMelee then table.insert(tags, {name = "MELEE", xp = 0}) end
-		table.insert(tags, {name = "KILL", xp = 0})
-		local distance = math.floor((bot.Root.Position - hitPos).Magnitude + 0.5)
-		local feed = {killer = bot.Name, victim = nameOf(victim), head = isHead, melee = isMelee, distance = distance,
-			longShot = not isMelee and distance >= (CombatConfig.LongShotDistance or 75), xp = 0, jump = false,
-			killerId = bot.UserId, victimId = victim.UserId}
-		for _, pl in Players:GetPlayers() do
-			if pl:GetAttribute("MatchId") == match.id then Effect:FireClient(pl, "Feed", feed) end
-		end
-		local ki, vi = infoOf(bot), infoOf(victim)
-		ki.Team, vi.Team = bot.Team, victim:GetAttribute("MatchTeam")
-		match.lastKill = {killer = bot.Name, victim = nameOf(victim), killerInfo = ki, victimInfo = vi}
-		pcall(fullEvent, match, {k = "kill", a = bot.UserId, v = victim.UserId, tags = tags})
-		local lk, killT = match.lastKill, os.clock()
-		task.delay(REPLAY_AFTER, function()
-			local ok, rep = pcall(snapshotReplay, match, bot, victim, killT, tags)
-			if ok then lk.replay = rep else warn("[Matchmaking] replay: " .. tostring(rep)) end
-		end)
-	end
-end
-
 -- PING for the Tab scoreboard (same number as the ms in the corner)
 task.spawn(function()
 	while true do
@@ -1470,10 +1545,22 @@ local function quitMidGame(p)
 	if not match or match.phase == "ended" or match.phase == "ending" then return end
 	if not p:GetAttribute("StreakReset") then
 		p:SetAttribute("StreakReset", true)
-		PlayerData.Set(p, "WinStreak", 0)
+		if not friendlyMode() then PlayerData.Set(p, "WinStreak", 0) end
 		-- and it counts as a loss (win rate = Wins / Matches)
-		PlayerData.Increment(p, "Losses", 1)
-		PlayerData.Increment(p, "Matches", 1)
+		if not friendlyMode() then PlayerData.Increment(p, "Losses", 1) end
+		if not friendlyMode() then PlayerData.Increment(p, "Matches", 1) end
+		-- ranked: a loss + RankConfig.QuitPenalty
+		if match.ranked and not friendlyMode() then
+			local t = p:GetAttribute("MatchTeam")
+			if t == 1 or t == 2 then
+				local function avgOf(team)
+					local s, n = 0, 0
+					for _, m in match.original[team] or {} do s += match.eloAtStart[m] or 0 n += 1 end
+					return n > 0 and s / n or 0
+				end
+				pcall(function() ranked().ApplyQuit(p, avgOf(t), avgOf(3 - t)) end)
+			end
+		end
 	end
 end
 -- runs inside PlayerData's own leave handler, before the save (whichever script's PlayerRemoving fires first)
@@ -1731,21 +1818,13 @@ Players.PlayerAdded:Connect(hookRequeue)
 Players.PlayerRemoving:Connect(function(p) lastJoin[p] = nil end)
 
 ------------------------------------------------------------ START A MATCH FOR GlobalMatchmaking
--- botCounts (optional) = {bots on team 1, bots on team 2} for the empty places
-StartMatchHook.OnInvoke = function(team1, team2, botCounts)
+StartMatchHook.OnInvoke = function(team1, team2, opts)
 	for _, team in {team1, team2} do
 		for _, p in team do
 			if matchByPlayer[p] then return false end
 		end
 	end
-	local fill
-	if type(botCounts) == "table" and botsOn() then
-		fill = {{}, {}}
-		for t = 1, 2 do
-			for _ = 1, math.clamp(tonumber(botCounts[t]) or 0, 0, 4) do table.insert(fill[t], Bots.Identity()) end
-		end
-	end
-	startMatch(team1, team2, nil, "Search", fill)
+	startMatch(team1, team2, nil, "Search", opts)
 	return true
 end
 

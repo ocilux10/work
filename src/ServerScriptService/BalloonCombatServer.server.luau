@@ -133,6 +133,22 @@ local function ragdoll(model, hum)
 			bs.TwistUpperAngle = 45
 			bs.Parent = m.Part0
 			m.Enabled = false
+		elseif m:IsA("AnimationConstraint") and m.Attachment0 and m.Attachment1 then
+			-- NEW AVATAR JOINTS (no Motor6Ds - AnimationConstraint holds each limb in its animated pose): switch them off
+			-- and let a limited ball socket hold the limb instead, so the body really goes limp
+			local p0, p1 = m.Attachment0.Parent, m.Attachment1.Parent
+			if p0 and p1 and p0.Name ~= "HumanoidRootPart" and p1.Name ~= "HumanoidRootPart" then
+				local bs = Instance.new("BallSocketConstraint")
+				bs.Name = "RagSocket"
+				bs.Attachment0, bs.Attachment1 = m.Attachment0, m.Attachment1
+				bs.LimitsEnabled = true
+				bs.UpperAngle = 60
+				bs.TwistLimitsEnabled = true
+				bs.TwistLowerAngle = -45
+				bs.TwistUpperAngle = 45
+				bs.Parent = p0
+				m.Enabled = false
+			end
 		end
 	end
 	local root = model:FindFirstChild("HumanoidRootPart")
@@ -205,7 +221,7 @@ end
 local Skins = require(RS:WaitForChild("BalloonSkins"):WaitForChild("SkinConfig"))
 local function balloonFor(char)
 	local p = Players:GetPlayerFromCharacter(char)
-	local b = p and Skins.Model(p:GetAttribute("EquippedSkin")) or template:Clone()
+	local b = p and Skins.Model(Skins.Of(p)) or template:Clone() -- (their wrap on their base balloon)
 	b.Anchored, b.CanCollide, b.CanQuery, b.CanTouch, b.Massless = false, false, false, false, true
 	return b
 end
@@ -244,9 +260,19 @@ local function giveBalloon(char)
 	local side = Config.HeldBalloonSide or 0.9
 	local len = Config.HeldStringLength or 2.2
 	local knotOffset = knot and knot.Position or Vector3.new(0, -b.Size.Y / 2, 0)
-	w.C0 = CFrame.new(gripPos) * upright * CFrame.new(side, len, 0) * CFrame.Angles(0, 0, -math.rad(12))
+	if len <= 0 then
+		-- HELD IN THE HAND: the bottom of the balloon sits in the fist, leaning forward like an equipped item
+		local off = Config.HeldInHandOffset or Vector3.new(0.55, 0.05, -0.15)
+		w.C0 = CFrame.new(gripPos + off) * upright * CFrame.Angles(-math.rad(Config.HeldInHandTilt or 10), 0, -math.rad(Config.HeldInHandLean or 12))
+	else
+		w.C0 = CFrame.new(gripPos) * upright * CFrame.new(side, len, 0) * CFrame.Angles(0, 0, -math.rad(12))
+	end
 	w.C1 = CFrame.new(knotOffset)
 	w.Parent = b
+	if len <= 0 then
+		b.Parent = char
+		return
+	end
 	-- the string: hand -> bottom of the balloon
 	local a0 = Instance.new("Attachment")
 	a0.Name = "HeldStringHand"
@@ -272,21 +298,18 @@ local function giveBalloon(char)
 	b.Parent = char
 end
 
--- BOTS: BotService asks for a balloon in a bot's hand (same as a player's, default skin)
-local GiveBalloon = script:FindFirstChild("GiveBalloon") or Instance.new("BindableFunction")
-GiveBalloon.Name = "GiveBalloon"
-GiveBalloon.OnInvoke = function(model)
-	if typeof(model) == "Instance" and model:IsA("Model") then giveBalloon(model) end
-	return true
-end
-GiveBalloon.Parent = script
-
 local function setHeldVisible(char, visible)
 	local b = char and char:FindFirstChild("HeldBalloon")
 	if not b then return end
-	b.Transparency = visible and 0 or 1
+	-- (remembers each piece's own see-through amount, so glass / wrap textures come back exactly as they were)
+	local function fade(o)
+		if o:GetAttribute("ShownT") == nil then o:SetAttribute("ShownT", o.Transparency) end
+		o.Transparency = visible and o:GetAttribute("ShownT") or 1
+	end
+	fade(b)
 	for _, d in b:GetDescendants() do
-		if d:IsA("Beam") or d:IsA("ParticleEmitter") or d:IsA("Light") then d.Enabled = visible end
+		if d:IsA("Beam") or d:IsA("ParticleEmitter") or d:IsA("Light") then d.Enabled = visible
+		elseif d:IsA("Decal") or d:IsA("BasePart") then fade(d) end -- (Decal = Texture too: wrap patterns)
 	end
 end
 
@@ -298,16 +321,8 @@ end
 --                                                 player:SetAttribute("MatchId", "<same id for both fighters>")
 --   and clears MatchId (set it to nil) when the match ends.
 -- In the practice arena nobody has a MatchId, so players can't damage each other.
--- BOTS (ServerStorage > Bots): a bot in a match is hurt like a player - same MatchId, other team only.
-local function canDamage(attacker, victimPlayer, victimModel)
-	if not victimPlayer then
-		if victimModel and victimModel:GetAttribute("IsBot") and victimModel:GetAttribute("MatchId") ~= nil then
-			if attacker:GetAttribute("MatchId") ~= victimModel:GetAttribute("MatchId") then return false end
-			local ta = attacker:GetAttribute("MatchTeam")
-			return ta == nil or ta ~= victimModel:GetAttribute("MatchTeam")
-		end
-		return true
-	end
+local function canDamage(attacker, victimPlayer)
+	if not victimPlayer then return true end
 	if victimPlayer == attacker then return false end
 	local a, v = attacker:GetAttribute("MatchId"), victimPlayer:GetAttribute("MatchId")
 	if a == nil or a ~= v then return false end
@@ -320,11 +335,12 @@ end
 local function applyDamage(attacker, hum, model, damage, hitPos, isHead, isMelee, dir)
 	if hum.Health <= 0 then return end
 	local victimName, victimPlayer = displayName(model)
-	if not canDamage(attacker, victimPlayer, model) then return end
+	if not canDamage(attacker, victimPlayer) then return end
 	if Config.TeamCheck and victimPlayer and attacker.Team and victimPlayer.Team == attacker.Team and not attacker.Neutral then
 		return
 	end
 	if model:FindFirstChildOfClass("ForceField") then return end
+	if victimPlayer and victimPlayer:GetAttribute("AdminGod") then return end -- admin panel God Mode
 
 	lastHit[hum] = {dir = dir, time = os.clock()}
 	local attackerChar, attackerHum = aliveCharacter(attacker)
@@ -335,8 +351,18 @@ local function applyDamage(attacker, hum, model, damage, hitPos, isHead, isMelee
 	end)()
 
 	hum:TakeDamage(damage)
+	-- a killing hit ragdolls RIGHT NOW (not a frame later when Died fires), flung the way the hit went
+	if hum.Health <= 0 and Config.RagdollOnDeath then ragdoll(model, hum) end
 	PlayerDamaged:Fire(attacker, model, victimPlayer, damage, hitPos, isHead, isMelee)
-	Effect:FireClient(attacker, "Damage", {pos = hitPos, amount = damage, head = isHead, melee = isMelee, target = model})
+	Effect:FireClient(attacker, "Damage", {pos = hitPos, amount = damage, head = isHead, melee = isMelee, target = model, killed = hum.Health <= 0})
+	-- SPECTATORS watching this player (LiveSpectateServer sets SpectatingUserId) see their damage numbers too
+	local watchersOfAttacker = {}
+	for _, pl in Players:GetPlayers() do
+		if pl ~= attacker and pl:GetAttribute("SpectatingUserId") == attacker.UserId then table.insert(watchersOfAttacker, pl) end
+	end
+	for _, pl in watchersOfAttacker do
+		Effect:FireClient(pl, "Damage", {pos = hitPos, amount = damage, head = isHead, melee = isMelee, target = model, killed = hum.Health <= 0, spectating = true})
+	end
 
 	if hum.Health <= 0 then
 		local tags = {}
@@ -347,19 +373,23 @@ local function applyDamage(attacker, hum, model, damage, hitPos, isHead, isMelee
 		if isMelee then table.insert(tags, {name = "MELEE", xp = Config.XP.Melee}) end
 		table.insert(tags, {name = "KILL", xp = Config.XP.Kill})
 		-- XP only counts in real matches: dummy / practice kills show +0 XP
-		local isBot = model:GetAttribute("IsBot") == true
-		local realKill = (victimPlayer ~= nil or isBot) and attacker:GetAttribute("MatchId") ~= nil
+		local realKill = victimPlayer ~= nil and attacker:GetAttribute("MatchId") ~= nil
 		if not realKill then
 			for _, t in tags do t.xp = 0 end
 		end
 		local totalXP = 0
 		for _, t in tags do totalXP += t.xp end
 		Effect:FireClient(attacker, "Kill", {victim = victimName, tags = tags, distance = distance, victimModel = model,
-			victimUserId = victimPlayer and victimPlayer.UserId or (isBot and model:GetAttribute("BotUserId")) or nil})
+			victimUserId = victimPlayer and victimPlayer.UserId or nil})
+		-- (and their kill popup to the people spectating them)
+		for _, pl in watchersOfAttacker do
+			Effect:FireClient(pl, "Kill", {victim = victimName, tags = tags, distance = distance, victimModel = model,
+				victimUserId = victimPlayer and victimPlayer.UserId or nil, spectating = true})
+		end
 		-- KILL FEED: in a match only the players in that match see it; in the practice arena only the killer does
 		local feed = {killer = NameBadge.Of(attacker), victim = victimName, head = isHead, melee = isMelee,
 			distance = distance, longShot = longShot, xp = totalXP, jump = airborne == true,
-			killerId = attacker.UserId, victimId = victimPlayer and victimPlayer.UserId or (isBot and model:GetAttribute("BotUserId")) or nil}
+			killerId = attacker.UserId, victimId = victimPlayer and victimPlayer.UserId or nil}
 		local matchId = attacker:GetAttribute("MatchId")
 		if matchId ~= nil then
 			for _, pl in Players:GetPlayers() do
@@ -398,7 +428,7 @@ SwingRemote.OnServerEvent:Connect(function(player, look)
 	local best, bestModel, bestDist, bestPart
 	for _, part in parts do
 		local hum, model = humanoidFromPart(part)
-		if hum and hum.Health > 0 and model ~= char and canDamage(player, Players:GetPlayerFromCharacter(model), model) then
+		if hum and hum.Health > 0 and model ~= char and canDamage(player, Players:GetPlayerFromCharacter(model)) then
 			local d = (part.Position - head.Position).Magnitude
 			if not bestDist or d < bestDist then
 				best, bestModel, bestDist, bestPart = hum, model, d, part
@@ -419,14 +449,16 @@ end)
 local HISTORY_TIME = 1
 local INTERP_DELAY = 0.1 -- roughly how far behind the client shows other players
 local history = {} -- [model] = { {t, rootCF}, ... } oldest first
+local trackedDummies = {} -- NPCs (trampoline dummies bounce fast: what you saw is behind where the server has them)
 
 RunService.Heartbeat:Connect(function()
 	local t = os.clock()
-	local chars = {}
-	for _, p in Players:GetPlayers() do if p.Character then table.insert(chars, p.Character) end end
-	local botFolder = workspace:FindFirstChild("Bots")
-	if botFolder then for _, m in botFolder:GetChildren() do table.insert(chars, m) end end
-	for _, char in chars do
+	local models = {}
+	for _, p in Players:GetPlayers() do if p.Character then table.insert(models, p.Character) end end
+	for m in trackedDummies do
+		if m.Parent then table.insert(models, m) else trackedDummies[m] = nil end
+	end
+	for _, char in models do
 		local root = char and char:FindFirstChild("HumanoidRootPart")
 		if root then
 			local h = history[char]
@@ -492,7 +524,8 @@ ShootRemote.OnServerEvent:Connect(function(player, origin, dir, hitPart, hitPos)
 	dir = dir.Unit
 
 	local head = char.Head
-	if (origin - head.Position).Magnitude > 12 then origin = head.Position end
+	-- (anti-exploit: the throw has to start at their head - not across a wall from it)
+	if (origin - head.Position).Magnitude > 8 or not losClear(head.Position, origin, {char}) then origin = head.Position end
 
 	local endPos = origin + dir * Config.ShootRange
 	local hitSomething = false
@@ -507,12 +540,15 @@ ShootRemote.OnServerEvent:Connect(function(player, origin, dir, hitPart, hitPos)
 		if hum and hum.Health > 0 and model ~= char then
 			local reach = hitPart.Size.Magnitude / 2 + Config.HitTolerance
 			local closeEnough = (hitPart.Position - hitPos).Magnitude <= reach
-			if not closeEnough and (Players:GetPlayerFromCharacter(model) or model:GetAttribute("IsBot")) then
+			if not closeEnough and history[model] then -- (players AND npcs)
 				-- lag compensation: check where the target was when the shooter saw them
 				local ok, ping = pcall(function() return player:GetNetworkPing() end)
 				local back = math.clamp((ok and ping or 0.1) + INTERP_DELAY, 0, 0.6)
-				local past = rewoundPosition(model, hitPart, os.clock() - back)
-				closeEnough = past ~= nil and (past - hitPos).Magnitude <= reach
+				-- (a small window around that moment: the exact delay on their screen varies a little)
+				for _, off in {0, -0.06, 0.06, -0.12, 0.12} do
+					local past = rewoundPosition(model, hitPart, os.clock() - math.max(back + off, 0))
+					if past and (past - hitPos).Magnitude <= reach then closeEnough = true break end
+				end
 			end
 			if closeEnough and losClear(origin, hitPos, {char, model}) then
 				local isHead = isHeadPart(hitPart)
@@ -568,6 +604,12 @@ for _, p in Players:GetPlayers() do
 end
 Players.PlayerRemoving:Connect(function(p) state[p] = nil end)
 
+-- (other server scripts - e.g. the tutorial's Bacon: script.GiveBalloon:Invoke(character) puts a balloon in its hand)
+local giveFn = script:FindFirstChild("GiveBalloon") or Instance.new("BindableFunction")
+giveFn.Name = "GiveBalloon"
+giveFn.OnInvoke = function(char) if typeof(char) == "Instance" then giveBalloon(char) end return true end
+giveFn.Parent = script
+
 ------------------------------------------------------------ LOBBY <-> ARENA
 local function hookArena(p)
 	p:GetAttributeChangedSignal("InArena"):Connect(function()
@@ -587,10 +629,12 @@ end
 Players.PlayerAdded:Connect(hookArena)
 -- changed balloon while holding one: swap it
 local function hookSkin(p)
-	p:GetAttributeChangedSignal("EquippedSkin"):Connect(function()
-		local char = p.Character
-		if char and p:GetAttribute("InArena") and char:FindFirstChild("HeldBalloon") then giveBalloon(char) end
-	end)
+	for _, a in {"EquippedSkin", "EquippedBase"} do
+		p:GetAttributeChangedSignal(a):Connect(function()
+			local char = p.Character
+			if char and p:GetAttribute("InArena") and char:FindFirstChild("HeldBalloon") then giveBalloon(char) end
+		end)
+	end
 end
 Players.PlayerAdded:Connect(hookSkin)
 for _, p in Players:GetPlayers() do hookSkin(p) end
@@ -602,6 +646,7 @@ local function registerDummy(model)
 	if not hum or Players:GetPlayerFromCharacter(model) then return end
 	if model:GetAttribute("CombatRegistered") then return end
 	model:SetAttribute("CombatRegistered", true)
+	trackedDummies[model] = true -- (lag compensation for hits on it)
 	-- models with the "CustomRespawn" attribute are respawned by their own script (e.g. TrampolineDummies)
 	local backup = (not model:GetAttribute("CustomRespawn") and Config.DummyRespawnTime > 0) and model:Clone() or nil
 	if backup then backup:SetAttribute("CombatRegistered", nil) end
