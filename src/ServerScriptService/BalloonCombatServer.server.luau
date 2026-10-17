@@ -321,8 +321,16 @@ end
 --                                                 player:SetAttribute("MatchId", "<same id for both fighters>")
 --   and clears MatchId (set it to nil) when the match ends.
 -- In the practice arena nobody has a MatchId, so players can't damage each other.
-local function canDamage(attacker, victimPlayer)
-	if not victimPlayer then return true end
+-- BOTS (ServerStorage > Bots): a bot in a match is hurt like a player - same MatchId, other team only.
+local function canDamage(attacker, victimPlayer, victimModel)
+	if not victimPlayer then
+		if victimModel and victimModel:GetAttribute("IsBot") and victimModel:GetAttribute("MatchId") ~= nil then
+			if attacker:GetAttribute("MatchId") ~= victimModel:GetAttribute("MatchId") then return false end
+			local ta = attacker:GetAttribute("MatchTeam")
+			return ta == nil or ta ~= victimModel:GetAttribute("MatchTeam")
+		end
+		return true
+	end
 	if victimPlayer == attacker then return false end
 	local a, v = attacker:GetAttribute("MatchId"), victimPlayer:GetAttribute("MatchId")
 	if a == nil or a ~= v then return false end
@@ -335,7 +343,7 @@ end
 local function applyDamage(attacker, hum, model, damage, hitPos, isHead, isMelee, dir)
 	if hum.Health <= 0 then return end
 	local victimName, victimPlayer = displayName(model)
-	if not canDamage(attacker, victimPlayer) then return end
+	if not canDamage(attacker, victimPlayer, model) then return end
 	if Config.TeamCheck and victimPlayer and attacker.Team and victimPlayer.Team == attacker.Team and not attacker.Neutral then
 		return
 	end
@@ -373,23 +381,25 @@ local function applyDamage(attacker, hum, model, damage, hitPos, isHead, isMelee
 		if isMelee then table.insert(tags, {name = "MELEE", xp = Config.XP.Melee}) end
 		table.insert(tags, {name = "KILL", xp = Config.XP.Kill})
 		-- XP only counts in real matches: dummy / practice kills show +0 XP
-		local realKill = victimPlayer ~= nil and attacker:GetAttribute("MatchId") ~= nil
+		local isBot = model:GetAttribute("IsBot") == true
+		local victimId = victimPlayer and victimPlayer.UserId or (isBot and model:GetAttribute("BotUserId")) or nil
+		local realKill = (victimPlayer ~= nil or isBot) and attacker:GetAttribute("MatchId") ~= nil
 		if not realKill then
 			for _, t in tags do t.xp = 0 end
 		end
 		local totalXP = 0
 		for _, t in tags do totalXP += t.xp end
 		Effect:FireClient(attacker, "Kill", {victim = victimName, tags = tags, distance = distance, victimModel = model,
-			victimUserId = victimPlayer and victimPlayer.UserId or nil})
+			victimUserId = victimId})
 		-- (and their kill popup to the people spectating them)
 		for _, pl in watchersOfAttacker do
 			Effect:FireClient(pl, "Kill", {victim = victimName, tags = tags, distance = distance, victimModel = model,
-				victimUserId = victimPlayer and victimPlayer.UserId or nil, spectating = true})
+				victimUserId = victimId, spectating = true})
 		end
 		-- KILL FEED: in a match only the players in that match see it; in the practice arena only the killer does
 		local feed = {killer = NameBadge.Of(attacker), victim = victimName, head = isHead, melee = isMelee,
 			distance = distance, longShot = longShot, xp = totalXP, jump = airborne == true,
-			killerId = attacker.UserId, victimId = victimPlayer and victimPlayer.UserId or nil}
+			killerId = attacker.UserId, victimId = victimId}
 		local matchId = attacker:GetAttribute("MatchId")
 		if matchId ~= nil then
 			for _, pl in Players:GetPlayers() do
@@ -428,7 +438,7 @@ SwingRemote.OnServerEvent:Connect(function(player, look)
 	local best, bestModel, bestDist, bestPart
 	for _, part in parts do
 		local hum, model = humanoidFromPart(part)
-		if hum and hum.Health > 0 and model ~= char and canDamage(player, Players:GetPlayerFromCharacter(model)) then
+		if hum and hum.Health > 0 and model ~= char and canDamage(player, Players:GetPlayerFromCharacter(model), model) then
 			local d = (part.Position - head.Position).Magnitude
 			if not bestDist or d < bestDist then
 				best, bestModel, bestDist, bestPart = hum, model, d, part
