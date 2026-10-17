@@ -420,6 +420,20 @@ function M.Place(bot, cf)
 	hum.Health = hum.MaxHealth
 	bot.Tracks = loadTracks(hum)
 	if bot.Tracks.Idle then bot.Tracks.Idle:Play() end
+	-- the balloon arm stays still like a player's (players' screens hold their own arm still; a bot's is done here):
+	-- the right arm's joints become welds, so the walk / idle animations can't swing the balloon around
+	for _, partName in {"RightUpperArm", "RightLowerArm", "RightHand"} do
+		local part = model:FindFirstChild(partName)
+		for _, m in part and part:GetChildren() or {} do
+			if m:IsA("Motor6D") and m.Part0 and m.Part1 then
+				local w = Instance.new("Weld")
+				w.Name = m.Name -- (BalloonCombatServer still finds "RightShoulder" if it raises the arm)
+				w.Part0, w.Part1, w.C0, w.C1 = m.Part0, m.Part1, m.C0, m.C1
+				m:Destroy()
+				w.Parent = part
+			end
+		end
+	end
 	-- a balloon in its hand, like a player's
 	local bcs = SSS:FindFirstChild("BalloonCombatServer")
 	local give = bcs and bcs:FindFirstChild("GiveBalloon")
@@ -457,12 +471,13 @@ function M.Spawn(opts)
 	return bot
 end
 
-function M.Despawn(bot)
+-- keepIdentity = true: its name / look stay reserved (the same bot is about to be made again somewhere else)
+function M.Despawn(bot, keepIdentity)
 	if not bot then return end
 	bots[bot] = nil
 	bot.Alive = false
 	if bot.DiedConn then bot.DiedConn:Disconnect() bot.DiedConn = nil end
-	M.Release(bot.Identity)
+	if not keepIdentity then M.Release(bot.Identity) end
 	if bot.Model then bot.Model:Destroy() end
 	if bot.Tag then bot.Tag:Destroy() end
 end

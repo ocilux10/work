@@ -338,6 +338,44 @@ end
 
 local startMatch -- defined below
 
+-- BOTS STANDING ON THE PAD: every bot waiting to fill a place stands on its side of the pad, like a player would
+-- (just for show: frozen, no fighting; the match makes the real ones)
+local function syncPadBots(area)
+	if not Bots then return end
+	area.padBots = area.padBots or {} -- [identity] = bot or true (still loading)
+	local want = {}
+	for team = 1, 2 do
+		for i, ident in area.fill[team] do want[ident] = {team = team, index = #area.members[team] + i} end
+	end
+	for ident, bot in area.padBots do
+		if not want[ident] then
+			area.padBots[ident] = nil
+			if bot ~= true then Bots.Despawn(bot, true) end
+		end
+	end
+	for ident, w in want do
+		if area.padBots[ident] then continue end
+		area.padBots[ident] = true
+		task.spawn(function()
+			local side, other = area.sides[w.team], area.sides[w.team == 1 and 2 or 1]
+			local a = (w.index - 1) * 2.1 + 0.6
+			local r = math.min(side.halfX, side.halfZ) * 0.35 * (area.teamSize > 1 and 1 or 0)
+			local pos = Vector3.new(side.center.X + math.cos(a) * r, side.topY + 3.2, side.center.Z + math.sin(a) * r)
+			local bot = Bots.New({Identity = ident, Force = true})
+			if not bot then area.padBots[ident] = nil return end
+			bot:SetAttribute("Frozen", true)
+			local ok = Bots.Place(bot, CFrame.lookAt(pos, Vector3.new(other.center.X, pos.Y, other.center.Z)))
+			if not ok or area.padBots[ident] ~= true then
+				Bots.Despawn(bot, true)
+				if area.padBots[ident] == true then area.padBots[ident] = nil end
+				return
+			end
+			bot.Root.Anchored = true
+			area.padBots[ident] = bot
+		end)
+	end
+end
+
 local function queueTick()
 	local claimed = {}
 	for _, area in areas do
@@ -392,6 +430,7 @@ local function queueTick()
 			while #f > need do Bots.Release(table.remove(f)) end
 			while #f < need do table.insert(f, Bots.Identity()) end
 		end
+		syncPadBots(area)
 		renderArea(area)
 		local full = #area.members[1] + #area.fill[1] == area.teamSize and #area.members[2] + #area.fill[2] == area.teamSize
 		-- Config.SoloTest: one person is enough (Studio playtests only, and only with bots off)
@@ -410,6 +449,7 @@ local function queueTick()
 				area.members = {{}, {}}
 				area.fill = {{}, {}}
 				area.waitSince = nil
+				syncPadBots(area) -- (the bots standing on the pad go; the match makes them again)
 				renderArea(area)
 				startMatch(t1, t2, area, nil, {Bots = fill})
 			end
