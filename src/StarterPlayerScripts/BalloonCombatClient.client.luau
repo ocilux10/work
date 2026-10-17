@@ -26,6 +26,7 @@ local template = folder:WaitForChild("BalloonTemplate")
 local Skins = require(RS:WaitForChild("BalloonSkins"):WaitForChild("SkinConfig"))
 local previewSkin -- (Balloons menu > Inspect > Wielded: this balloon in your hands for a look)
 local function mySkin() return previewSkin or player:GetAttribute("EquippedSkin") end
+local function myBase() return player:GetAttribute("EquippedBase") end -- (the base balloon your wrap is on)
 local SFX = require(RS:WaitForChild("SFX")) -- sounds: ReplicatedStorage > SoundConfig
 
 local function inArena()
@@ -117,8 +118,8 @@ local function popAt(pos, color)
 end
 
 ------------------------------------------------------------ FLYING BALLOON (visual only, hitscan already happened)
-local function flyBalloon(from, to, doPop, skinId)
-	local b = (skinId and Skins.Model(skinId)) or template:Clone()
+local function flyBalloon(from, to, doPop, skinId, baseId)
+	local b = (skinId and Skins.Model(skinId, baseId)) or template:Clone()
 	b.CanCollide, b.CanQuery, b.CanTouch = false, false, false
 	scaleBalloon(b, Config.ShotVisualScale * Skins.Size(skinId)) -- (SkinConfig Size = per balloon)
 	stripBeams(b)
@@ -203,8 +204,9 @@ local function vmPart(name, size, color)
 end
 
 -- ARM LAYOUT (camera space: +X right, +Y up, -Z forward). Tweak these to move the arms.
-local R_SHOULDER, R_HAND_POS = Vector3.new(1.75, -1.45, -0.9), Vector3.new(0.85, -0.55, -2.5)
-local L_SHOULDER, L_HAND_POS = Vector3.new(-1.75, -1.45, -0.9), Vector3.new(-0.95, -0.65, -2.4)
+-- (hand positions: BalloonCombat > Config > RightArmHandPos / LeftArmHandPos)
+local R_SHOULDER, R_HAND_POS = Vector3.new(1.75, -1.45, -0.9), Config.RightArmHandPos or Vector3.new(0.85, -0.55, -2.5)
+local L_SHOULDER, L_HAND_POS = Vector3.new(-1.75, -1.45, -0.9), Config.LeftArmHandPos or Vector3.new(-0.95, -0.65, -2.4)
 local ARM_THICK = 0.65
 local ARM_EXTRA = 1.2 -- sleeve keeps going this far behind the shoulder (off-screen)
 local R_POSE, R_LEN = CFrame.lookAt(R_SHOULDER, R_HAND_POS), (R_HAND_POS - R_SHOULDER).Magnitude
@@ -268,12 +270,15 @@ local function dressArms(char)
 end
 
 local vmBalloon, balloonBaseSize, knot, knotOffset, vmSkinId
+local vmShown -- (first-person balloon showing? see showVMBalloon)
 local vmFX = {} -- the skin's effects on the first-person balloon (hidden while it's thrown / regrowing)
-local function setVMSkin(id)
-	if vmBalloon and vmSkinId == id then return end
+local vmBaseId
+local function setVMSkin(id, baseId)
+	baseId = baseId or myBase()
+	if vmBalloon and vmSkinId == id and vmBaseId == baseId then return end
 	if vmBalloon then vmBalloon:Destroy() end
-	vmSkinId = id
-	vmBalloon = Skins.Model(id) or template:Clone()
+	vmSkinId, vmBaseId = id, baseId
+	vmBalloon = Skins.Model(id, baseId) or template:Clone()
 	vmBalloon.Name = "Balloon"
 	vmBalloon.CanCollide, vmBalloon.CanQuery, vmBalloon.CanTouch = false, false, false
 	scaleBalloon(vmBalloon, Config.ViewmodelBalloonScale * Skins.Size(id)) -- (SkinConfig Size = per balloon)
@@ -281,6 +286,7 @@ local function setVMSkin(id)
 	vmBalloon.Anchored = true
 	vmBalloon.CastShadow = false
 	vmBalloon.Parent = vm
+	vmShown = nil
 	balloonBaseSize = vmBalloon.Size
 	knot = vmBalloon:FindFirstChild("StringPoint1")
 	knotOffset = Vector3.new(0, -balloonBaseSize.Y / 2 * 0.97, 0) -- bottom tip of the balloon = the knot you hold
@@ -291,6 +297,21 @@ local function setVMSkin(id)
 end
 setVMSkin(mySkin())
 player:GetAttributeChangedSignal("EquippedSkin"):Connect(function() if not previewSkin then setVMSkin(mySkin()) end end)
+player:GetAttributeChangedSignal("EquippedBase"):Connect(function() if not previewSkin then setVMSkin(mySkin()) end end)
+-- show / hide the first-person balloon WITH its wrap textures (a hidden balloon used to leave its textures floating
+-- where it was thrown until the reload finished). Each piece keeps its own see-through amount.
+local function showVMBalloon(on)
+	if vmShown == on or not vmBalloon then return end
+	vmShown = on
+	local function fade(o)
+		if o:GetAttribute("ShownT") == nil then o:SetAttribute("ShownT", o.Transparency) end
+		o.Transparency = on and o:GetAttribute("ShownT") or 1
+	end
+	fade(vmBalloon)
+	for _, d in vmBalloon:GetDescendants() do
+		if d:IsA("Decal") or d:IsA("BasePart") then fade(d) end -- (Decal covers Texture too)
+	end
+end
 local vmFXOn = true
 local function showVMFX(on)
 	if vmFXOn == on then return end
@@ -330,6 +351,24 @@ local SWING_B = { -- 2) backhand: from low left, rising up to the right
 }
 local SWING_KEYS = SWING_A
 local swingVariant, seenSwing = 2, -100 -- (which of the two the current swing is)
+-- CLIMB / VAULT (first person, like Knife Duels): both hands reach up and grab the ledge, then push down and back past
+-- you as you haul yourself over. Times are 0-1 of the climb (Movement's ClimbTime / VaultTime). Both arms use these
+-- (the left one mirrored). Config.ClimbArms = false turns it off.
+local CLIMB_KEYS = {
+	{0, CFrame.new()},
+	{0.18, CFrame.new(0, 0.75, -0.35) * CFrame.Angles(math.rad(70), 0, 0)},
+	{0.32, CFrame.new(0, 0.55, -0.45) * CFrame.Angles(math.rad(55), 0, 0)},
+	{0.65, CFrame.new(0, -0.35, 0.25) * CFrame.Angles(math.rad(-25), 0, 0)},
+	{0.85, CFrame.new(0, -0.6, 0.55) * CFrame.Angles(math.rad(-45), 0, 0)},
+	{1, CFrame.new()},
+}
+local VAULT_KEYS = {
+	{0, CFrame.new()},
+	{0.2, CFrame.new(0, 0.1, -0.5) * CFrame.Angles(math.rad(-30), 0, 0)},
+	{0.6, CFrame.new(0, -0.45, 0.35) * CFrame.Angles(math.rad(-45), 0, 0)},
+	{1, CFrame.new()},
+}
+local climbStart, climbKind, climbDur = -100, nil, 0.5
 local THROW_KEYS = {
 	{0, CFrame.new()},
 	{0.3, CFrame.new(-0.2, 0.2, -0.7) * CFrame.Angles(math.rad(-25), math.rad(10), 0)},  -- push forward
@@ -384,12 +423,46 @@ end
 player:GetAttributeChangedSignal("ThrowHolding"):Connect(function()
 	setHoldAnim(player:GetAttribute("ThrowHolding") == true)
 end)
+
+-- CHARACTER ANIMATIONS (Config.Animations): fighting idle + item hold loop while you're in a fight,
+-- swing / throw play on attacks. They're on YOUR character, so everyone sees them.
+local ANIMS = Config.Animations or {}
+local function animOn(name) local a = ANIMS[name] return a and type(a.Id) == "string" and a.Id:match("%d") ~= nil end
+local charTracks, charTracksChar = {}, nil
+local function charTrack(name)
+	local char = player.Character
+	if not char or not animOn(name) then return nil end
+	if charTracksChar ~= char then table.clear(charTracks) charTracksChar = char end
+	if charTracks[name] then return charTracks[name] end
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	local animator = hum and hum:FindFirstChildOfClass("Animator")
+	if not animator then return nil end
+	local a = Instance.new("Animation")
+	a.AnimationId = (ANIMS[name].Id:gsub("%s", ""))
+	local ok, track = pcall(function() return animator:LoadAnimation(a) end)
+	if not ok or not track then return nil end
+	track.Priority = ANIMS[name].Priority or Enum.AnimationPriority.Action
+	track.Looped = name == "FightIdle" or name == "ItemHold"
+	charTracks[name] = track
+	return track
+end
+local function playOnce(name)
+	local t = charTrack(name)
+	if t then t:Play(ANIMS[name].Fade or 0.05, 1, ANIMS[name].Speed or 1) end
+end
+local function setLoop(name, on)
+	local t = (on or (charTracksChar == player.Character and charTracks[name])) and charTrack(name)
+	if not t then return end
+	if on and not t.IsPlaying then t:Play(ANIMS[name].Fade or 0.2, 1, ANIMS[name].Speed or 1)
+	elseif not on and t.IsPlaying then t:Stop(ANIMS[name].Fade or 0.2) end
+end
 local balloonReady = true
 local lifeToken = 0
 local sway = CFrame.new()
 local lastCamCF = camera.CFrame
 local bobT = 0
 local armSwingK = 0
+local slideDip = 0
 local armT = 0
 
 local function getChar()
@@ -447,7 +520,7 @@ local function trySwing()
 	lastSwing = now
 	swingStart = now
 	-- (Wielded preview in the Balloons menu: just the look, nothing is hit)
-	if not previewSkin then SwingRemote:FireServer(camera.CFrame.LookVector) end
+	if not previewSkin then SwingRemote:FireServer(camera.CFrame.LookVector) playOnce("Swing") end
 	SFX.Play("Swing")
 end
 
@@ -520,7 +593,8 @@ local function tryShoot()
 	local from = vmBalloon.Position
 	-- tell the UI when the balloon reaches the target, so the damage number appears on arrival
 	player:SetAttribute("ShotArriveAt", os.clock() + math.min((to - from).Magnitude / Config.ShotVisualSpeed, Config.ShotMaxTravelTime or math.huge))
-	flyBalloon(from, to, result ~= nil, mySkin())
+	flyBalloon(from, to, result ~= nil, vmSkinId or mySkin(), vmBaseId)
+	if not previewSkin then playOnce("Throw") end
 	SFX.Play("Shoot")
 
 	local token = lifeToken
@@ -536,7 +610,7 @@ end
 -- HOLD TO KEEP SWINGING: keep the melee key held = swings again every time the cooldown is up
 swingHeld = false
 RunService.Heartbeat:Connect(function()
-	if not swingHeld or not (inArena() or previewSkin) or player:GetAttribute("TabHeld") then return end
+	if not swingHeld or not (inArena() or previewSkin) or player:GetAttribute("TabHeld") or player:GetAttribute("FreeMouse") then return end
 	if UIS:GetFocusedTextBox() then return end
 	if not GSR.IsDown("Swing") then swingHeld = false return end
 	if os.clock() - lastSwing >= Config.MeleeCooldown then trySwing() end
@@ -547,11 +621,16 @@ local LeaveArena = Remotes:WaitForChild("LeaveArena")
 local COMBAT_UI = {"Crosshair", "ReloadBar", "LMB", "RMB", "HealthBar"}
 
 local LOBBY_HUD = {Buttons = true, XpBar = true, Bottom = true, Top = true, Quests = true}
-local lastMainState
+local lastMainState, lastMainObj
 local function applyMode()
 	local arena = inArena()
+	-- (dead in a match, looking round your body - MatchClient's death camera: third person, no arms)
+	local deathCam = player:GetAttribute("DeathCam") == true
 	-- camera
-	if arena and Config.ForceFirstPerson then
+	if deathCam then
+		player.CameraMode = Enum.CameraMode.Classic
+		UIS.MouseIconEnabled = true
+	elseif arena and Config.ForceFirstPerson then
 		player.CameraMode = Enum.CameraMode.LockFirstPerson
 		UIS.MouseIconEnabled = false -- the crosshair replaces it
 	else
@@ -564,7 +643,7 @@ local function applyMode()
 		end)
 	end
 	-- viewmodel
-	vm.Parent = (previewSkin or replayMode or (spectateMode and not spectateFree) or (arena and getChar())) and camera or nil
+	vm.Parent = (not deathCam and (previewSkin or replayMode or (spectateMode and not spectateFree) or (arena and getChar()))) and camera or nil
 	-- UI
 	local pg = player:FindFirstChild("PlayerGui")
 	local ui = pg and pg:FindFirstChild("BalloonCombatUI")
@@ -585,12 +664,18 @@ local function applyMode()
 	local inMatch = player:GetAttribute("MatchId") ~= nil -- in a real match (MatchmakingServer): no lobby UI, no leave button
 	-- (only when you actually go between lobby / arena / match - not on every call, e.g. the Balloons menu's
 	-- wielded preview ending, which used to shut whatever menu was open)
-	local mainState = tostring(arena) .. tostring(inMatch) .. tostring(main)
-	local changedMode = mainState ~= lastMainState
+	-- (a NEW Main - the UI is remade when you respawn mid-match - counts as a change too: its lobby buttons have to be
+	-- hidden again. tostring(main) is just "Main" for every copy, which is what left the lobby UI up in matches)
+	local mainState = tostring(arena) .. tostring(inMatch)
+	local changedMode = mainState ~= lastMainState or main ~= lastMainObj
 	lastMainState = mainState
+	lastMainObj = main
 	if main then
 		-- (the Balloons menu's inspect screen hides the lobby UI - BalloonsClient sets InspectingBalloon)
-		main.Enabled = not player:GetAttribute("InspectingBalloon")
+		-- (watching a replay: the replay keeps it off - switching it on here made the lobby UI flash over the replay)
+		-- (tutorial: only the tutorial's own UI - StarterPlayerScripts > TutorialClient)
+		main.Enabled = not player:GetAttribute("InspectingBalloon") and not replayMode and not player:GetAttribute("WatchingReplay")
+			and player:GetAttribute("TutorialMode") ~= true
 		for _, g in (changedMode and main:GetChildren() or {}) do
 			if g:IsA("GuiObject") then
 				if g:GetAttribute("ManagedPopup") then
@@ -625,6 +710,23 @@ local function hookLeaveButton()
 end
 
 player:GetAttributeChangedSignal("InArena"):Connect(applyMode)
+-- GUARD: in a fight the lobby HUD (Buttons / XpBar / Bottom / Top / Quests) stays hidden even if another script
+-- (closing a menu, a reward popup, the UI being remade...) switches it back on - that's what put the lobby UI
+-- over a match. Checked 5 times a second.
+task.spawn(function()
+	while true do
+		task.wait(0.2)
+		if inArena() or player:GetAttribute("MatchId") ~= nil then
+			local main = player:FindFirstChild("PlayerGui") and player.PlayerGui:FindFirstChild("Main")
+			if main then
+				for name in LOBBY_HUD do
+					local g = main:FindFirstChild(name)
+					if g and g:IsA("GuiObject") and g.Visible then g.Visible = false end
+				end
+			end
+		end
+	end
+end)
 -- practice arena in / out sounds (matches have their own)
 local wasInArena = inArena()
 player:GetAttributeChangedSignal("InArena"):Connect(function()
@@ -635,6 +737,7 @@ player:GetAttributeChangedSignal("InArena"):Connect(function()
 	SFX.Play(now and "ArenaEnter" or "ArenaLeave")
 end)
 player:GetAttributeChangedSignal("MatchId"):Connect(applyMode)
+player:GetAttributeChangedSignal("DeathCam"):Connect(applyMode)
 player.CharacterAdded:Connect(function()
 	task.wait(0.2) -- let the ScreenGuis respawn first
 	hookLeaveButton()
@@ -665,7 +768,7 @@ ClientActions.Event:Connect(function(action, a, b)
 	-- Balloons menu > Inspect > Wielded: your arms holding this balloon (a = the balloon Id), until PreviewEnd
 	elseif action == "PreviewStart" then
 		previewSkin = a
-		setVMSkin(a)
+		setVMSkin(a, type(b) == "string" and b or nil) -- (b = the balloon type picked in the inspect screen)
 		balloonReady, inspectStart = true, -100
 		lastShot, lastSwing, swingStart, throwStart, regrowStart = -100, -100, -100, -100, -100
 		dressArms(player.Character)
@@ -682,6 +785,12 @@ ClientActions.Event:Connect(function(action, a, b)
 		replayToken += 1
 		local killer = typeof(a) == "number" and Players:GetPlayerByUserId(a)
 		if killer and killer.Character then dressArms(killer.Character) end
+		-- everything THEY customised: their balloon in the hands, their crosshair / hitmarker / reload bar
+		if killer then
+			local GSx = require(game:GetService("ReplicatedStorage"):WaitForChild("GameSettings"))
+			setVMSkin(killer:GetAttribute("EquippedSkin") or "Default", killer:GetAttribute("EquippedBase"))
+			GSx.SetOverride(GSx.PrefsOf(killer) or {})
+		end
 		balloonReady, inspectStart = true, -100
 		lastShot, lastSwing, swingStart, throwStart, regrowStart = -100, -100, -100, -100, -100
 		vm.Parent = camera
@@ -691,6 +800,8 @@ ClientActions.Event:Connect(function(action, a, b)
 	elseif action == "ReplayEnd" then
 		replayMode = false
 		replayToken += 1
+		require(game:GetService("ReplicatedStorage"):WaitForChild("GameSettings")).SetOverride(nil)
+		setVMSkin(mySkin())
 		dressArms(player.Character) -- back to your own arms
 		balloonReady = true
 		lastShot, lastSwing, swingStart, throwStart, regrowStart = -100, -100, -100, -100, -100
@@ -721,6 +832,20 @@ ClientActions.Event:Connect(function(action, a, b)
 		spectateModel = typeof(a) == "Instance" and a or nil
 		if spectateTarget and spectateTarget.Character then dressArms(spectateTarget.Character) end
 		if spectateModel then dressArms(spectateModel) end
+		-- 1:1 with what THEY see: their balloon, crosshair, hitmarker and reload bar
+		do
+			local GSx = require(game:GetService("ReplicatedStorage"):WaitForChild("GameSettings"))
+			local who = spectateTarget or (spectateModel and Players:GetPlayerFromCharacter(spectateModel))
+			local skin = who and who:GetAttribute("EquippedSkin") or (spectateModel and spectateModel:GetAttribute("EquippedSkin"))
+			local base = who and who:GetAttribute("EquippedBase") or (spectateModel and spectateModel:GetAttribute("EquippedBase"))
+			if skin then setVMSkin(skin, base) end
+			local prefs = who and GSx.PrefsOf(who)
+			if not prefs and spectateModel and type(spectateModel:GetAttribute("Prefs")) == "string" then
+				local ok, t = pcall(function() return game:GetService("HttpService"):JSONDecode(spectateModel:GetAttribute("Prefs")) end)
+				prefs = ok and t or nil
+			end
+			GSx.SetOverride(prefs or {})
+		end
 		balloonReady, inspectStart = true, -100
 		lastShot, lastSwing, swingStart, throwStart, regrowStart = -100, -100, -100, -100, -100
 		applyMode()
@@ -747,6 +872,8 @@ ClientActions.Event:Connect(function(action, a, b)
 		SFX.Play("Swing")
 	elseif action == "SpectateEnd" then
 		spectateMode, spectateTarget, spectateFree, spectateModel = false, nil, false, nil
+		require(game:GetService("ReplicatedStorage"):WaitForChild("GameSettings")).SetOverride(nil)
+		setVMSkin(mySkin())
 		if hiddenChar then hideBody(hiddenChar, false) hiddenChar = nil end
 		dressArms(player.Character)
 		balloonReady = true
@@ -768,7 +895,7 @@ UIS.InputBegan:Connect(function(input, gpe)
 		return
 	end
 	-- holding Tab frees the mouse (StarterPlayerScripts > TabMenu): clicks are for the UI then, not attacks
-	if player:GetAttribute("TabHeld") then return end
+	if player:GetAttribute("TabHeld") or player:GetAttribute("FreeMouse") then return end
 	if GS.Is("Swing", input) then
 		swingHeld = true
 		trySwing()
@@ -860,7 +987,50 @@ end
 
 -- keep the balloon-holding arm up: after the walk/run animations run, cut their effect on the right shoulder
 -- (runs for every character holding a balloon, so everyone sees the arm raised)
+-- HELD BALLOON STAYS UPRIGHT IN THE FIST (everyone's, on this screen): the hold / idle animations turn the hand, so
+-- the balloon is re-placed every frame: its knot at the grip + Config.HeldInHandOffset (X right, Y up, Z back - from
+-- the CHARACTER's point of view), standing up straight, leaning by HeldInHandTilt / HeldInHandLean.
+RunService.PreRender:Connect(function()
+	if (Config.HeldStringLength or 0) > 0 then return end
+	local off = Config.HeldInHandOffset or Vector3.zero
+	local tilt = CFrame.Angles(-math.rad(Config.HeldInHandTilt or 10), 0, -math.rad(Config.HeldInHandLean or 12))
+	-- (players + the stand-ins in a replay you're watching)
+	local chars = {}
+	for _, plr in Players:GetPlayers() do if plr.Character then table.insert(chars, plr.Character) end end
+	-- (the tutorial's Bacon holds his like a player too)
+	local tb = workspace:FindFirstChild("TutorialBots")
+	if tb then for _, m in tb:GetChildren() do table.insert(chars, m) end end
+	local rs = workspace:FindFirstChild("ReplaySessions")
+	if rs then
+		for _, sess in rs:GetChildren() do
+			local gh = sess:FindFirstChild("Ghosts")
+			if gh then for _, g in gh:GetChildren() do table.insert(chars, g) end end
+		end
+	end
+	for _, c in chars do
+		local b = c and c:FindFirstChild("HeldBalloon")
+		local w = b and b:FindFirstChildOfClass("Weld")
+		local r = c and c:FindFirstChild("HumanoidRootPart")
+		if w and w.Part0 and r then
+			local hand = w.Part0
+			local g = hand:FindFirstChild("RightGripAttachment")
+			local gripWorld = g and g.WorldPosition or (hand.CFrame * Vector3.new(0, -hand.Size.Y / 2, 0))
+			local want = CFrame.new(gripWorld + r.CFrame:VectorToWorldSpace(off)) * r.CFrame.Rotation * tilt
+			w.C0 = hand.CFrame:ToObjectSpace(want)
+		end
+	end
+end)
+
+-- fighting idle + item hold loop while in a fight with a balloon in hand
+RunService.Heartbeat:Connect(function()
+	local char, hum = getChar()
+	local fighting = char ~= nil and inArena() and char:FindFirstChild("HeldBalloon") ~= nil and not previewSkin
+	setLoop("FightIdle", fighting)
+	setLoop("ItemHold", fighting)
+end)
+
 RunService.PreSimulation:Connect(function()
+	if animOn("ItemHold") then return end -- (the item hold animation poses the arm instead)
 	local keep = Config.HoldArmSway or 0.12
 	for _, plr in Players:GetPlayers() do
 		local c = plr.Character
@@ -898,14 +1068,18 @@ Effect.OnClientEvent:Connect(function(kind, data)
 		end
 	end
 	if kind == "Shot" and data.shooter ~= player then
-		local skin = typeof(data.shooter) == "Instance" and data.shooter:IsA("Player") and data.shooter:GetAttribute("EquippedSkin") or nil
-		flyBalloon(data.from, data.to, data.pop, skin)
+		local isP = typeof(data.shooter) == "Instance" and data.shooter:IsA("Player")
+		local skin = isP and data.shooter:GetAttribute("EquippedSkin") or nil
+		flyBalloon(data.from, data.to, data.pop, skin, isP and data.shooter:GetAttribute("EquippedBase") or nil)
 		if typeof(data.from) == "Vector3" then SFX.Play("Shoot", data.from) end
-		animateArm(data.shooter.Character, ARM_THROW_KEYS, Config.ThrowAnimTime * 1.6)
+		-- (with a Throw animation set, their own animation already shows it)
+		if not animOn("Throw") then animateArm(data.shooter.Character, ARM_THROW_KEYS, Config.ThrowAnimTime * 1.6) end
 	elseif kind == "Swing" and data.player ~= player then
 		local c = data.player.Character
 		if c then armCombo[c] = not armCombo[c] end
-		animateArm(c, (c and armCombo[c] == false) and ARM_SWING_KEYS_B or ARM_SWING_KEYS, Config.SwingAnimTime * 1.3)
+		if not animOn("Swing") then
+			animateArm(c, (c and armCombo[c] == false) and ARM_SWING_KEYS_B or ARM_SWING_KEYS, Config.SwingAnimTime * 1.3)
+		end
 		local head = data.player.Character and data.player.Character:FindFirstChild("Head")
 		if head then SFX.Play("Swing", head) end
 	end
@@ -1025,7 +1199,22 @@ RunService:BindToRenderStep("BalloonViewmodel", Enum.RenderPriority.Camera.Value
 	local bk = math.min(speed / 16, 1)
 	local bob = CFrame.new(math.sin(bobT) * 0.05 * bk, -math.abs(math.cos(bobT)) * 0.05 * bk, 0)
 
-	local base = camCF * sway * bob
+	-- sliding / crouching: both arms dip and tip down (Config.SlideArmDrop)
+	local D = Config.SlideArmDrop or {}
+	local dipWant = 0
+	if char then
+		if char:GetAttribute("Sliding") then dipWant = 1
+		elseif char:GetAttribute("Crouching") then dipWant = D.CrouchAmount or 0.6 end
+	end
+	slideDip += (dipWant - slideDip) * math.min(1, dt * (D.Speed or 10))
+	local dipCF = CFrame.new()
+	if slideDip > 0.001 then
+		local o = D.Offset or Vector3.new(0, -0.4, 0.25)
+		dipCF = CFrame.new(o * slideDip) * CFrame.Angles(math.rad(D.Pitch or -16) * slideDip, 0, 0)
+	end
+	local roll = math.rad(D.Roll or 6) * slideDip
+
+	local base = camCF * sway * bob * dipCF
 
 	-- right arm animation (swing / throw) around the shoulder
 	local anim = CFrame.new()
@@ -1034,7 +1223,8 @@ RunService:BindToRenderStep("BalloonViewmodel", Enum.RenderPriority.Camera.Value
 	-- a new swing started (yours, a replay's or a watched player's): the other one of the combo
 	if swingStart ~= seenSwing and st >= 0 and st < 1 then
 		seenSwing = swingStart
-		swingVariant = swingVariant == 1 and 2 or 1
+		-- (Config.SwingCombo = true: alternate with the backhand; off = always the slash across to the left)
+		swingVariant = (Config.SwingCombo == true and swingVariant == 1) and 2 or 1
 	end
 	if st >= 0 and st < 1 then
 		anim = lerpKeys(swingVariant == 1 and SWING_A or SWING_B, st)
@@ -1074,7 +1264,22 @@ RunService:BindToRenderStep("BalloonViewmodel", Enum.RenderPriority.Camera.Value
 		lSwing = CFrame.new(-0.15 * a, -0.15 * a, 0.35 * a) * CFrame.Angles(math.rad(-15) * a, math.rad(-20) * a, 0)
 	end
 
-	local rShoulder = base * rPumpCam * R_POSE * rPump * anim
+	-- climbing: both arms grab the ledge and push back (CLIMB_KEYS / VAULT_KEYS above)
+	if char and Config.ClimbArms ~= false then
+		local kind = char:GetAttribute("Climbing")
+		if kind and kind ~= climbKind then climbStart, climbDur = now, char:GetAttribute("ClimbDuration") or 0.5 end
+		climbKind = kind
+		local ct = (now - climbStart) / math.max(climbDur, 0.05)
+		if kind and ct >= 0 and ct < 1 then
+			local keys = kind == "Vault" and VAULT_KEYS or CLIMB_KEYS
+			anim = lerpKeys(keys, ct)
+			local lk = lerpKeys(keys, math.clamp(ct - 0.04, 0, 1))
+			local x, y, z = lk:ToEulerAnglesXYZ()
+			lSwing = CFrame.new(-lk.Position.X, lk.Position.Y, lk.Position.Z) * CFrame.Angles(x, -y, -z)
+			rPumpCam, lPumpCam = CFrame.new(), CFrame.new()
+		end
+	end
+	local rShoulder = base * CFrame.Angles(0, 0, roll) * rPumpCam * R_POSE * rPump * anim
 	rSleeve.CFrame = rShoulder * CFrame.new(0, 0, -(R_LEN - ARM_EXTRA) / 2) * ARM_ROT
 	rHand.CFrame = rShoulder * CFrame.new(0, 0, -R_LEN + 0.04)
 	-- balloon stays upright on screen, sitting on the right hand
@@ -1090,7 +1295,7 @@ RunService:BindToRenderStep("BalloonViewmodel", Enum.RenderPriority.Camera.Value
 	end
 	local rHandCF = CFrame.new((rShoulder * CFrame.new(0, 0, -R_LEN)).Position) * handRot * CFrame.new(grip)
 
-	local lShoulder = base * lPumpCam * L_POSE * lPump * lSwing
+	local lShoulder = base * CFrame.Angles(0, 0, -roll) * lPumpCam * L_POSE * lPump * lSwing
 	lSleeve.CFrame = lShoulder * CFrame.new(0, 0, -(L_LEN - ARM_EXTRA) / 2) * ARM_ROT
 	lHand.CFrame = lShoulder * CFrame.new(0, 0, -L_LEN + 0.04)
 
@@ -1105,7 +1310,7 @@ RunService:BindToRenderStep("BalloonViewmodel", Enum.RenderPriority.Camera.Value
 			s = 0.12 + 0.88 * e
 		end
 		vmBalloon.Size = balloonBaseSize * s
-		vmBalloon.Transparency = 0
+		showVMBalloon(true)
 		-- inspecting: the balloon does a full slow spin (plus a little wobble) on the hand
 		local spin = CFrame.new()
 		if inspecting(now) then
@@ -1118,7 +1323,8 @@ RunService:BindToRenderStep("BalloonViewmodel", Enum.RenderPriority.Camera.Value
 		vmBalloon.CFrame = rHandCF * spin * CFrame.new(-knotOffset * s)
 		showVMFX(g >= 0.6)
 	else
-		vmBalloon.Transparency = 1
+		showVMBalloon(false)
+		vmBalloon.CFrame = rHandCF * CFrame.new(-knotOffset) -- (hidden, but kept on the hand)
 		showVMFX(false)
 	end
 end)

@@ -199,7 +199,8 @@ local function startSlide()
 	local input = flat(hum.MoveDirection)
 	local v = flat(root.AssemblyLinearVelocity)
 	slideDir = input ~= Vector3.zero and input or (v ~= Vector3.zero and v or flat(camera.CFrame.LookVector))
-	slideSpeed = math.max(M.SlideSpeed, hSpeed() * 1.15)
+	-- (capped: chaining slide -> jump -> land-slide used to add speed every time, forever)
+	slideSpeed = math.min(math.max(M.SlideSpeed, hSpeed() * 1.15), M.MaxSlideSpeed or (M.SlideSpeed + M.SlideJumpBoost))
 	slideStart = os.clock()
 	slideAirTime = 0
 	sliding = true
@@ -212,6 +213,51 @@ local function endSlide()
 	if not sliding then return end
 	sliding = false
 	curSpeed = math.clamp(slideSpeed, M.CrouchSpeed, M.SprintSpeed)
+end
+
+------------------------------------------------------------ WALL LAUNCH (MovementConfig > WALL LAUNCH)
+-- slide into a wall -> within WallLaunchWindow pull back + jump = thrown up and off the wall
+local wallHitAt, wallNormal, lastWallLaunch = -100, Vector3.zero, -100
+local function pullingBack()
+	if hum.MoveDirection:Dot(wallNormal) > 0.3 then return true end
+	local ok, down = pcall(GS.IsDown, "MoveBackward")
+	return ok and down == true
+end
+local function tryWallLaunch()
+	if not M.WallLaunchEnabled or climbing then return false end
+	local now = os.clock()
+	if now - wallHitAt > (M.WallLaunchWindow or 0.25) or now - lastWallLaunch < (M.WallLaunchCooldown or 1) then return false end
+	if now - lastJumpPress > (M.WallLaunchWindow or 0.25) or not pullingBack() then return false end
+	lastWallLaunch, wallHitAt = now, -100
+	if sliding then endSlide() end
+	local up = math.sqrt(2 * workspace.Gravity * (M.WallLaunchHeight or 22))
+	local push = wallNormal * (M.WallLaunchPush or 16)
+	hum:ChangeState(Enum.HumanoidStateType.Freefall)
+	jumpedSinceGround = true
+	local launchV = Vector3.new(push.X, up, push.Z)
+	root.AssemblyLinearVelocity = launchV
+	-- (the normal jump from the same press can overwrite it on the next physics step: put it back)
+	local n = 0
+	local c
+	c = RunService.Heartbeat:Connect(function()
+		n += 1
+		if root.AssemblyLinearVelocity.Y < up * 0.9 and n <= 2 then root.AssemblyLinearVelocity = launchV end
+		if n >= 2 then c:Disconnect() end
+	end)
+	momentum = math.max(momentum, M.WallLaunchPush or 16)
+	char:SetAttribute("LastWallLaunch", now) -- (tutorial / other scripts can watch this)
+	SFX.Play("SlideJump", root)
+	return true
+end
+local function checkWallHit()
+	if not M.WallLaunchEnabled then return end
+	local hit = workspace:Raycast(root.Position + Vector3.new(0, -1, 0), slideDir * (M.WallLaunchCheckDistance or 2.6), rayParams)
+	if hit and math.abs(hit.Normal.Y) < 0.35 and hit.Instance.CanCollide then
+		wallHitAt = os.clock()
+		wallNormal = flat(hit.Normal)
+		char:SetAttribute("WallHitAt", wallHitAt)
+		endSlide()
+	end
 end
 
 ------------------------------------------------------------ CLIMB / VAULT
@@ -261,8 +307,11 @@ local function tryClimb(grounded)
 	-- 4) pull up / hop over
 	climbing = true
 	lastClimb = os.clock()
+	-- (other scripts can tell: character attribute Climbing = "Vault" / "Climb" while it happens - the tutorial uses it)
+	char:SetAttribute("Climbing", grounded and "Vault" or "Climb")
 	SFX.Play(grounded and "Vault" or "Climb", root)
 	local duration = grounded and M.VaultTime or M.ClimbTime
+	char:SetAttribute("ClimbDuration", duration) -- (the first-person arms time their climb pose to this)
 	local carry = math.max(hSpeed(), curSpeed)
 	playOnly("Climb")
 	if tracks.Climb and tracks.Climb.Length > 0 then tracks.Climb:AdjustSpeed(tracks.Climb.Length / duration) end
@@ -275,12 +324,13 @@ local function tryClimb(grounded)
 	local conn
 	local lastSet = root.Position
 	conn = RunService.RenderStepped:Connect(function()
-		if not root.Parent or hum.Health <= 0 then conn:Disconnect() climbing = false return end
+		if not root.Parent or hum.Health <= 0 then conn:Disconnect() climbing = false char:SetAttribute("Climbing", nil) return end
 		-- the server teleported / froze us mid-climb (round ended, new round placed us): stop right here,
 		-- otherwise the climb drags us back to the ledge and we start the round there
 		if root.Anchored or (root.Position - lastSet).Magnitude > 6 then
 			conn:Disconnect()
 			climbing = false
+			char:SetAttribute("Climbing", nil)
 			sprintJumped = false
 			hum.AutoRotate = true
 			pitchTarget = 0
@@ -303,6 +353,9 @@ local function tryClimb(grounded)
 		if t >= 1 then
 			conn:Disconnect()
 			climbing = false
+			char:SetAttribute("Climbing", nil)
+			char:SetAttribute("LastClimb", grounded and "Vault" or "Climb")
+			char:SetAttribute("LastClimbAt", os.clock())
 			sprintJumped = false
 			hum.AutoRotate = true
 			pitchTarget = 0
@@ -316,8 +369,20 @@ local function tryClimb(grounded)
 end
 
 ------------------------------------------------------------ INPUT
+local onInput
 UIS.InputBegan:Connect(function(input, gpe)
 	if gpe then return end
+	-- controller: wait a moment - if Circle / B just closed a menu (ControllerSupport), it doesn't also crouch / slide
+	if isPad(input) then
+		task.defer(function()
+			if os.clock() - (localPlayer:GetAttribute("PadBackAt") or -100) < 0.15 then return end
+			onInput(input)
+		end)
+		return
+	end
+	onInput(input)
+end)
+function onInput(input)
 	if localPlayer:GetAttribute("Loading") then return end -- loading screen: nothing
 	-- match countdown (Frozen): you can't move, but you CAN crouch (spam it), and holding sprint / crouch is
 	-- remembered so the moment the countdown ends you're already sprinting / sliding
@@ -339,18 +404,21 @@ UIS.InputBegan:Connect(function(input, gpe)
 		if sprintOn() and hum.MoveDirection.Magnitude > 0.1 and canSlide() then
 			startSlide()
 		elseif M.CrouchToggle then
-			crouchHeld = not crouchHeld
+			-- (no crouching in the air: a toggle press mid-air doesn't count)
+			if onGround() or crouchHeld then crouchHeld = not crouchHeld end
 		else
+			-- hold: only counts once you land, if you're STILL holding it then
 			crouchHeld = true
 		end
 	elseif GS.Is("Jump", input) then
 		lastJumpPress = os.clock()
+		if tryWallLaunch() then return end
 		-- coyote time: just ran off a ledge, still allowed to jump
 		if not onGround() and not jumpedSinceGround and not climbing and os.clock() - leftGroundAt <= M.CoyoteTime then
 			hum:ChangeState(Enum.HumanoidStateType.Jumping)
 		end
 	end
-end)
+end
 UIS.InputEnded:Connect(function(input)
 	if GS.Is("Sprint", input) then
 		sprintHeld = GS.IsDown("Sprint")
@@ -380,8 +448,8 @@ local actionConn = clientActions.Event:Connect(function(action)
 		-- phones always sprint, so moving + Slide button = slide; standing still = crouch
 		if sprintOn() and canSlide() and hum.MoveDirection.Magnitude > 0.1 then
 			startSlide()
-		else
-			crouchHeld = not crouchHeld -- standing still: the button toggles crouch
+		elseif onGround() or crouchHeld then
+			crouchHeld = not crouchHeld -- standing still: the button toggles crouch (not in the air)
 		end
 	elseif action == "SprintToggle" then
 		localPlayer:SetAttribute("MobileSprint", not localPlayer:GetAttribute("MobileSprint"))
@@ -389,6 +457,7 @@ local actionConn = clientActions.Event:Connect(function(action)
 		slideHeld = false -- let go of the mobile Slide button
 	elseif action == "Jump" then
 		lastJumpPress = os.clock()
+		if tryWallLaunch() then return end
 		if crouchHeld and not sliding then crouchHeld = false end -- jumping stands you up
 		if onGround() or (not jumpedSinceGround and not climbing and os.clock() - leftGroundAt <= M.CoyoteTime) then
 			hum:ChangeState(Enum.HumanoidStateType.Jumping)
@@ -405,10 +474,12 @@ hum.StateChanged:Connect(function(_, new)
 		sprintJumped = sprintOn() and speed > M.WalkSpeed
 		if sliding then
 			-- slide-jump: keep the slide speed plus a boost
-			local boost = slideDir * M.SlideJumpBoost
-			root.AssemblyLinearVelocity += boost
+			-- (never faster than MaxSlideSpeed: the boost only tops you up to it)
+			local cap = M.MaxSlideSpeed or (M.SlideSpeed + M.SlideJumpBoost)
+			local add = math.clamp(cap - math.max(slideSpeed, hSpeed()), 0, M.SlideJumpBoost)
+			root.AssemblyLinearVelocity += slideDir * add
 			SFX.Play("SlideJump", root)
-			speed = slideSpeed + M.SlideJumpBoost
+			speed = math.min(slideSpeed + add, cap)
 			endSlide()
 		end
 		if M.CarryMomentum then momentum = speed end
@@ -485,9 +556,14 @@ RunService.Heartbeat:Connect(function(dt)
 		hum:SetAttribute("WatchNoJump", nil)
 		hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
 	end
-	setWatchPose(false)
 	-- loading screen is up (ReplicatedFirst > LoadingScreenClient): stand still
 	local frozen = localPlayer:GetAttribute("Frozen") == true
+	-- held in place by the server (match countdown, spawn, end screen): the idle pose for everyone, not Roblox's
+	-- walking / falling animation playing on the spot (that was the "walking on air")
+	local heldRoot = char:FindFirstChild("HumanoidRootPart")
+	local held = frozen and heldRoot ~= nil and heldRoot.Anchored and not char:GetAttribute("Crouching")
+	if held then hum:Move(Vector3.zero) end
+	setWatchPose(held)
 	if wasFrozen and not frozen and not localPlayer:GetAttribute("Loading") then task.defer(onUnfrozen) end
 	wasFrozen = frozen
 	if localPlayer:GetAttribute("Loading") or frozen then
@@ -537,12 +613,13 @@ RunService.Heartbeat:Connect(function(dt)
 	wasGrounded = grounded
 	if not grounded then peakFall = math.max(peakFall, -root.AssemblyLinearVelocity.Y) end
 
-	local crouching = crouchHeld and not sliding
+	-- NO CROUCHING IN THE AIR: crouch only happens on the ground (held while landing = crouch as you land)
+	local crouching = crouchHeld and not sliding and grounded
 	local sprinting = sprintOn() and not crouchHeld and not sliding and forwardish
-	if crouchHeld ~= wasCrouchHeld then
-		wasCrouchHeld = crouchHeld
+	if crouching ~= wasCrouchHeld then
+		wasCrouchHeld = crouching
 		-- one "Crouch" sound for both (standing up = same sound, higher + quieter), so Off = true mutes both
-		if not sliding then SFX.Play("Crouch", root, crouchHeld and nil or {Pitch = 1.35, Volume = 0.8}) end
+		if not sliding then SFX.Play("Crouch", root, crouching and nil or {Pitch = 1.35, Volume = 0.8}) end
 	end
 
 	-------- SLIDE PHYSICS
@@ -554,12 +631,14 @@ RunService.Heartbeat:Connect(function(dt)
 			slopeGain = downhill:Dot(slideDir)
 		end
 		slideSpeed += (M.SlopeBoost * slopeGain - M.SlideFriction) * dt
+		slideSpeed = math.min(slideSpeed, (M.MaxSlideSpeed or 50) * 1.2) -- (downhill can go a bit past it, not forever)
 		-- light steering
 		if moving and M.SlideSteer > 0 then
 			slideDir = flat(slideDir:Lerp(flat(moveDir), math.min(1, M.SlideSteer * dt)))
 		end
 		local v = root.AssemblyLinearVelocity
 		root.AssemblyLinearVelocity = slideDir * math.max(slideSpeed, 0) + Vector3.new(0, v.Y, 0)
+		checkWallHit()
 		hum.WalkSpeed = math.max(slideSpeed, M.CrouchSpeed)
 
 		if grounded then slideAirTime = 0 else slideAirTime += dt end
@@ -577,6 +656,9 @@ RunService.Heartbeat:Connect(function(dt)
 			st:AdjustSpeed(0)
 		end
 	end
+
+	-- (jump pressed first, then pulled back inside the window)
+	if now - wallHitAt <= (M.WallLaunchWindow or 0.25) then tryWallLaunch() end
 
 	-------- SPEED (acceleration + carried momentum)
 	if not sliding then
@@ -606,7 +688,9 @@ RunService.Heartbeat:Connect(function(dt)
 	elseif crouching and grounded then
 		if moving then playOnly("CrouchWalk", math.clamp(speed / M.CrouchSpeed, 0.6, 1.6)) else playOnly("Crouch") end
 	elseif sprinting and grounded and speed > M.WalkSpeed + 1 then
-		playOnly("Run", math.clamp(speed / M.SprintSpeed, 0.7, 1.4))
+		-- in a fight (first person: arena / match) the RunFight sprint, in the lobby the normal Run
+		local fight = localPlayer:GetAttribute("InArena") == true and tracks.RunFight ~= nil
+		playOnly(fight and "RunFight" or "Run", math.clamp(speed / M.SprintSpeed, 0.7, 1.4))
 	else
 		playOnly(nil)
 	end

@@ -39,6 +39,7 @@ M.SlideMinTime = 0.15         -- a quick tap still slides at least this long
 M.SlideDownhillMaxTime = 3    -- max hold time when sliding down a slope
 M.SlideCooldown = 0.6
 M.SlideMinSpeed = 10          -- must be moving at least this fast to slide (10 = works from a walk)
+M.MaxSlideSpeed = 50          -- fastest a slide / slide-jump can ever go (stops slide-jump chaining to infinite speed)
 M.SlideJumpBoost = 8          -- extra forward speed when you jump out of a slide
 M.LandingSlide = true         -- holding crouch when you land at speed goes straight into a slide
 M.SlideAnimTime = 0.3         -- seconds the slide animation takes to play once (nil = its normal speed)
@@ -48,12 +49,21 @@ M.SlideAnimLoop = false
 M.ClimbRequiresSprint = true
 M.ClimbReach = 2.5            -- how far above your waist a ledge can be while in the air
 M.ClimbCheckDistance = 2.6
-M.ClimbTime = 0.65
+M.ClimbTime = 0.15
 M.ClimbCooldown = 0.4
-M.VaultEnabled = true         -- sprint into a waist/chest-high obstacle to hop onto it without jumping
+M.VaultEnabled = false        -- true = sprinting into a waist/chest-high obstacle hops you onto it without jumping (off = you have to jump)
 M.VaultMinHeight = 1.6        -- studs above your feet
 M.VaultMaxHeight = 4.5
-M.VaultTime = 0.32
+M.VaultTime = 0.14
+
+---------------------------------------------------------------- WALL LAUNCH
+-- slide into a wall, then pull BACK (S / stick back) + JUMP within the window = launched up and off the wall
+M.WallLaunchEnabled = true
+M.WallLaunchHeight = 22       -- studs it throws you up
+M.WallLaunchPush = 16         -- studs/s pushed away from the wall
+M.WallLaunchWindow = 0.2     -- seconds after hitting the wall to do back + jump
+M.WallLaunchCooldown = 1
+M.WallLaunchCheckDistance = 2 -- how close the wall must be while sliding
 
 ---------------------------------------------------------------- CAMERA FEEL
 M.SprintFOVBoost = 12
@@ -65,15 +75,16 @@ M.ClimbCameraPitch = 8        -- camera nods down as you pull yourself up
 
 ---------------------------------------------------------------- ANIMATIONS
 M.Anims = {
-	Run = "rbxassetid://120027936031994",
+	Run = "rbxassetid://120027936031994",      -- sprint in the lobby (third person)
+	RunFight = "rbxassetid://112827524382848", -- sprint in a fight (first person: practice arena / matches) - "" = Run everywhere
 	Crouch = "rbxassetid://139646403065983",
 	CrouchWalk = "rbxassetid://108680143346372",
 	Slide = "rbxassetid://89615311779494",
-	Climb = "rbxassetid://125095111836724",
+	Climb = "rbxassetid://73714870153836",
 
 	-- normal movement (these replace Roblox's default animations; leave "" to keep the Roblox default)
-	Walk = "rbxassetid://75271648194142",
-	Idle = "rbxassetid://77041112425450",
+	Walk = "rbxassetid://94584163336618",
+	Idle = "rbxassetid://105940678218780", -- 87225327283072 -- 77041112425450
 	Jump = "rbxassetid://118995119848870",
 	Fall = "rbxassetid://71305990489517",
 }
